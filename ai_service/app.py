@@ -19,8 +19,9 @@ except ImportError:
     pass
 
 app = Flask(__name__)
-# Broad CORS config for deployment communication
-CORS(app, resources={r"/*": {"origins": "*"}})
+# Strict CORS config for deployment communication
+backend_url = os.getenv("BACKEND_URL", "https://student-attendance-system-hpw1.onrender.com")
+CORS(app, resources={r"/*": {"origins": [backend_url, "http://localhost:5000"]}})
 
 processor = FaceProcessor()
 

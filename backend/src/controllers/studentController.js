@@ -194,36 +194,28 @@ exports.registerFaces = async (req, res) => {
     console.log(`[FACE REGISTER] Images received: ${images.length}`);
 
     // Call Python AI Service to extract embeddings
-    const aiUrl = `${process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000'}/api/extract-embeddings`;
+    const { postToAi } = require('../utils/aiClient');
     
-    console.log(`[FACE REGISTER] Forwarding ${images.length} images to AI service at ${aiUrl}...`);
+    console.log(`[FACE REGISTER] Forwarding ${images.length} images to AI service...`);
 
     let result;
     try {
-      const response = await fetch(aiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          student_id: student._id.toString(),
-          roll_number: student.rollNumber,
-          images: images
-        })
-      });
+      result = await postToAi('/api/extract-embeddings', {
+        student_id: student._id.toString(),
+        roll_number: student.rollNumber,
+        images: images
+      }, 2); // 2 retries
 
-      result = await response.json();
-
-      if (!response.ok || !result.success) {
+      if (!result.success) {
         throw new Error(result.message || 'Error processing images in AI service');
       }
     } catch (aiError) {
       console.error(`[FACE REGISTER] AI Service Error:`, aiError.message);
       // Unlock before returning
-      await Student.findByIdAndUpdate(studentId, { isProcessingFaceRegistration: false });
+      await Student.findByIdAndUpdate(studentId, { isProcessingFaceRegistration: false }).catch(()=>null);
       return res.status(502).json({
         success: false,
-        message: 'AI face service unavailable: ' + aiError.message
+        message: aiError.message || 'AI face service unavailable'
       });
     }
 

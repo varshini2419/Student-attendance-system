@@ -23,18 +23,29 @@ const Navbar = ({ onMenuOpen }) => {
   };
 
   useEffect(() => {
+    console.log('[DIAGNOSTICS] Frontend successfully connected to browser environment.');
     const checkHealth = async () => {
       // Check Backend & DB
       try {
         const res = await API.get('/health');
         if (res.data && res.data.success) {
+          if (backendStatus !== 'online') console.log('[DIAGNOSTICS] Backend connected successfully.');
           setBackendStatus('online');
-          setDbStatus(res.data.dbConnected ? 'online' : 'offline');
+          
+          if (res.data.dbConnected) {
+             if (dbStatus !== 'online') console.log('[DIAGNOSTICS] MongoDB Atlas connected securely.');
+             setDbStatus('online');
+          } else {
+             if (dbStatus !== 'offline') console.warn('[DIAGNOSTICS] MongoDB Atlas connection failed.');
+             setDbStatus('offline');
+          }
         } else {
+          console.warn('[DIAGNOSTICS] Backend responded with non-success state.');
           setBackendStatus('offline');
           setDbStatus('offline');
         }
       } catch (err) {
+        console.error('[DIAGNOSTICS] Backend connection timeout or refusal:', err.message);
         setBackendStatus('offline');
         setDbStatus('offline');
       }
@@ -42,14 +53,16 @@ const Navbar = ({ onMenuOpen }) => {
       // Check AI Service
       try {
         const aiUrl = import.meta.env.VITE_AI_SERVICE_URL || 'http://127.0.0.1:8000';
-        // We expect AI service to have a /health or /api/health endpoint
         const aiRes = await fetch(`${aiUrl}/api/health`);
         if (aiRes.ok) {
+          if (aiStatus !== 'online') console.log('[DIAGNOSTICS] Python AI Service connected and model loaded.');
           setAiStatus('online');
         } else {
+          console.warn(`[DIAGNOSTICS] Python AI Service responded with status: ${aiRes.status}`);
           setAiStatus('offline');
         }
       } catch (err) {
+        console.error('[DIAGNOSTICS] Python AI Service connection error:', err.message);
         setAiStatus('offline');
       }
     };
@@ -57,7 +70,7 @@ const Navbar = ({ onMenuOpen }) => {
     checkHealth();
     const interval = setInterval(checkHealth, 30000); // Check every 30s
     return () => clearInterval(interval);
-  }, []);
+  }, [backendStatus, dbStatus, aiStatus]);
 
   const StatusBadge = ({ status, label, icon: Icon }) => (
     <div 

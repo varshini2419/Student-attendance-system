@@ -68,23 +68,15 @@ exports.markAttendanceByFace = async (req, res) => {
     }
 
     // Forward to Python AI service
-    const aiUrl = `${process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000'}/api/recognize`;
-    
+    const { postToAi } = require('../utils/aiClient');
+    let result;
     try {
-      const response = await fetch(aiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ image })
-      });
+      result = await postToAi('/api/recognize', { image }, 1); // 1 retry
 
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        return res.status(response.status || 500).json({
+      if (!result || !result.success) {
+        return res.status(500).json({
           success: false,
-          message: result.message || 'Face recognition service error'
+          message: result?.message || 'Face recognition service error'
         });
       }
 
@@ -200,10 +192,10 @@ exports.markAttendanceByFace = async (req, res) => {
       });
 
     } catch (aiError) {
-      console.error('AI Service Connection Error:', aiError);
+      console.error('AI Service Connection Error:', aiError.message);
       return res.status(502).json({
         success: false,
-        message: 'Could not connect to the AI Face Service. Please check if the Python AI service is running.'
+        message: aiError.message || 'Could not connect to the AI Face Service. Please check if the Python AI service is running.'
       });
     }
 
@@ -245,23 +237,17 @@ exports.recognizeFace = async (req, res) => {
     console.log('[ATTENDANCE SCAN]');
 
     // Forward to Python AI service
-    const aiUrl = `${process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000'}/api/recognize`;
+    const { postToAi } = require('../utils/aiClient');
     
-    let response;
+    let result;
     try {
-      response = await fetch(aiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image })
-      });
+      result = await postToAi('/api/recognize', { image }, 1);
     } catch (aiError) {
-      console.error('AI Service Connection Error:', aiError);
-      return res.status(502).json({ success: false, message: 'Could not connect to the AI Face Service.' });
+      console.error('AI Service Connection Error:', aiError.message);
+      return res.status(502).json({ success: false, message: aiError.message || 'Could not connect to the AI Face Service.' });
     }
 
-    const result = await response.json();
-
-    if (!response.ok || !result.success || !result.faces || result.faces.length === 0) {
+    if (!result || !result.success || !result.faces || result.faces.length === 0) {
       return res.status(200).json({ faceDetected: false, matched: false, message: 'No face detected' });
     }
 
