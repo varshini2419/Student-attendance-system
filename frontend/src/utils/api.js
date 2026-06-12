@@ -1,7 +1,14 @@
 import axios from 'axios';
 
+let baseUrl = import.meta.env.VITE_API_URL || 'https://student-attendance-system-hpw1.onrender.com/api';
+// Automatically append /api if the user forgot it in their environment variables
+if (baseUrl && !baseUrl.endsWith('/api')) {
+  // Strip trailing slash if present before appending
+  baseUrl = baseUrl.replace(/\/$/, '') + '/api';
+}
+
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'https://student-attendance-system-hpw1.onrender.com/api',
+  baseURL: baseUrl,
   headers: {
     'Content-Type': 'application/json'
   }
