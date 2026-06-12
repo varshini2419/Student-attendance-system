@@ -59,11 +59,11 @@ const Login = () => {
   // Quick fill helper
   const fillCredentials = (role) => {
     if (role === 'admin') {
-      setEmail('admin@attendance.com');
-      setPassword('Admin@123');
+      setEmail('admin@gmail.com');
+      setPassword('admin123');
     } else {
-      setEmail('faculty@attendance.com');
-      setPassword('Faculty@123');
+      setEmail('faculty@gmail.com');
+      setPassword('faculty123');
     }
     setLocalError('');
     setSeedSuccess('');
