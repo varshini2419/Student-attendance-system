@@ -26,7 +26,8 @@ connectDB();
 
 // Middleware
 const allowedOrigins = [
-  process.env.FRONTEND_URL || 'https://student-attendance-system-frontend.vercel.app',
+  process.env.FRONTEND_URL || 'https://student-attendance-system-eight-tau.vercel.app',
+  'https://student-attendance-system-frontend.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000'
 ];
