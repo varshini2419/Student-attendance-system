@@ -20,7 +20,7 @@ except ImportError:
 
 app = Flask(__name__)
 # Strict CORS config for deployment communication
-backend_url = os.getenv("BACKEND_URL", "https://student-attendance-system-1-p2tq.onrender.com")
+backend_url = os.getenv("BACKEND_URL", "https://student-attendance-system-hpw1.onrender.com")
 frontend_url = os.getenv("FRONTEND_URL", "https://student-attendance-system-eight-tau.vercel.app")
 CORS(app, resources={r"/*": {"origins": [backend_url, frontend_url, "http://localhost:5000", "http://localhost:5173"]}})
 

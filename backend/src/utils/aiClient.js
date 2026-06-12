@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 const aiClient = axios.create({
-  baseURL: process.env.AI_SERVICE_URL || 'https://student-attendance-system-hpw1.onrender.com',
+  baseURL: process.env.AI_SERVICE_URL || 'https://student-attendance-system-1-p2tq.onrender.com',
   timeout: 15000, // 15 seconds timeout
 });
 
