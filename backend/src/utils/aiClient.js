@@ -1,7 +1,12 @@
 const axios = require('axios');
 
+let aiServiceUrl = process.env.AI_SERVICE_URL || 'https://student-attendance-system-1-p2tq.onrender.com';
+if (aiServiceUrl.includes('127.0.0.1') || aiServiceUrl.includes('localhost')) {
+  aiServiceUrl = 'https://student-attendance-system-1-p2tq.onrender.com';
+}
+
 const aiClient = axios.create({
-  baseURL: process.env.AI_SERVICE_URL || 'https://student-attendance-system-1-p2tq.onrender.com',
+  baseURL: aiServiceUrl,
   timeout: 15000, // 15 seconds timeout
 });
 
