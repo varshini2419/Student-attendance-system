@@ -1,0 +1,243 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "AI Student Attendance System API",
+    "version": "1.0.0",
+    "description": "API Documentation for the AI Student Attendance System Backend."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5000",
+      "description": "Local Development Server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "summary": "User Login",
+        "tags": ["Auth"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Successful login" }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "summary": "User Registration",
+        "tags": ["Auth"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "email": { "type": "string" },
+                  "password": { "type": "string" },
+                  "role": { "type": "string", "enum": ["faculty", "admin"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "User created" }
+        }
+      }
+    },
+    "/api/students": {
+      "get": {
+        "summary": "Get all students",
+        "tags": ["Students"],
+        "responses": {
+          "200": { "description": "List of students" }
+        }
+      },
+      "post": {
+        "summary": "Add a new student",
+        "tags": ["Students"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "rollNumber": { "type": "string" },
+                  "branch": { "type": "string" },
+                  "section": { "type": "string" },
+                  "email": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Student created" }
+        }
+      }
+    },
+    "/api/students/{id}": {
+      "put": {
+        "summary": "Update student",
+        "tags": ["Students"],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "rollNumber": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Student updated" }
+        }
+      },
+      "delete": {
+        "summary": "Delete student",
+        "tags": ["Students"],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Student deleted" }
+        }
+      }
+    },
+    "/api/students/{id}/register-faces": {
+      "post": {
+        "summary": "Register student face embeddings",
+        "tags": ["Students"],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "images": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Array of base64 images"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Faces registered" }
+        }
+      }
+    },
+    "/api/attendance/mark-face": {
+      "post": {
+        "summary": "Mark Attendance by Face",
+        "tags": ["Attendance"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "image": { "type": "string", "description": "Base64 camera frame" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Attendance processing result" }
+        }
+      }
+    },
+    "/api/attendance/logs": {
+      "get": {
+        "summary": "Get Daily or Monthly Attendance",
+        "tags": ["Attendance"],
+        "parameters": [
+          { "in": "query", "name": "date", "schema": { "type": "string" } },
+          { "in": "query", "name": "startDate", "schema": { "type": "string" } },
+          { "in": "query", "name": "endDate", "schema": { "type": "string" } },
+          { "in": "query", "name": "rollNumber", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Attendance logs" }
+        }
+      }
+    },
+    "/api/reports/excel": {
+      "get": {
+        "summary": "Generate and Download Excel Report",
+        "tags": ["Reports"],
+        "parameters": [
+          { "in": "query", "name": "date", "schema": { "type": "string" } },
+          { "in": "query", "name": "startDate", "schema": { "type": "string" } },
+          { "in": "query", "name": "endDate", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Excel file attachment" }
+        }
+      }
+    },
+    "/api/reports/pdf": {
+      "get": {
+        "summary": "Generate and Download PDF Report",
+        "tags": ["Reports"],
+        "parameters": [
+          { "in": "query", "name": "date", "schema": { "type": "string" } },
+          { "in": "query", "name": "startDate", "schema": { "type": "string" } },
+          { "in": "query", "name": "endDate", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "PDF file attachment" }
+        }
+      }
+    }
+  }
+}
