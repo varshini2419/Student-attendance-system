@@ -52,7 +52,7 @@ const Navbar = ({ onMenuOpen }) => {
 
       // Check AI Service
       try {
-        const aiUrl = import.meta.env.VITE_AI_SERVICE_URL || 'http://127.0.0.1:8000';
+        const aiUrl = import.meta.env.VITE_AI_SERVICE_URL || 'https://student-attendance-system-hpw1.onrender.com';
         const aiRes = await fetch(`${aiUrl}/api/health`);
         if (aiRes.ok) {
           if (aiStatus !== 'online') console.log('[DIAGNOSTICS] Python AI Service connected and model loaded.');
