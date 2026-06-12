@@ -5,6 +5,8 @@ import API from '../utils/api';
 
 const Navbar = ({ onMenuOpen }) => {
   const location = useLocation();
+  const [backendStatus, setBackendStatus] = useState('connecting');
+  const [dbStatus, setDbStatus] = useState('connecting');
   const [aiStatus, setAiStatus] = useState('connecting');
 
   // Determine current page title
@@ -21,20 +23,29 @@ const Navbar = ({ onMenuOpen }) => {
   };
 
   useEffect(() => {
-    const checkAiHealth = async () => {
+    const checkHealth = async () => {
+      // Check Backend & DB
       try {
-        const res = await fetch('http://localhost:5000/');
-        if (res.ok) {
-          try {
-            const aiRes = await fetch('http://127.0.0.1:8000/api/health');
-            if (aiRes.ok) {
-              setAiStatus('online');
-            } else {
-              setAiStatus('offline');
-            }
-          } catch {
-            setAiStatus('offline');
-          }
+        const res = await API.get('/health');
+        if (res.data && res.data.success) {
+          setBackendStatus('online');
+          setDbStatus(res.data.dbConnected ? 'online' : 'offline');
+        } else {
+          setBackendStatus('offline');
+          setDbStatus('offline');
+        }
+      } catch (err) {
+        setBackendStatus('offline');
+        setDbStatus('offline');
+      }
+
+      // Check AI Service
+      try {
+        const aiUrl = import.meta.env.VITE_AI_SERVICE_URL || 'http://127.0.0.1:8000';
+        // We expect AI service to have a /health or /api/health endpoint
+        const aiRes = await fetch(`${aiUrl}/api/health`);
+        if (aiRes.ok) {
+          setAiStatus('online');
         } else {
           setAiStatus('offline');
         }
@@ -43,10 +54,35 @@ const Navbar = ({ onMenuOpen }) => {
       }
     };
 
-    checkAiHealth();
-    const interval = setInterval(checkAiHealth, 15000); // Check every 15s
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000); // Check every 30s
     return () => clearInterval(interval);
   }, []);
+
+  const StatusBadge = ({ status, label, icon: Icon }) => (
+    <div 
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold shadow-sm transition-all duration-300 border ${
+        status === 'online'
+          ? 'bg-emerald-50/80 text-emerald-700 border-emerald-200/50 shadow-emerald-100/50'
+          : status === 'offline'
+          ? 'bg-rose-50/80 text-rose-700 border-rose-200/50 shadow-rose-100/50'
+          : 'bg-amber-50/80 text-amber-700 border-amber-200/50 shadow-amber-100/50'
+      }`}
+      title={`${label} is ${status}`}
+    >
+      {status === 'online' ? (
+        <Icon className="h-3 w-3 text-emerald-500" />
+      ) : status === 'offline' ? (
+        <WifiOff className="h-3 w-3" />
+      ) : (
+        <div className="flex h-3 w-3 items-center justify-center">
+          <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-amber-400 opacity-75"></span>
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+        </div>
+      )}
+      <span className="hidden lg:inline tracking-wide uppercase">{label}</span>
+    </div>
+  );
 
   return (
     <header className="sticky top-0 z-40 flex h-[76px] w-full items-center justify-between border-b border-slate-200/50 bg-white/70 px-6 backdrop-blur-xl shadow-sm">
@@ -70,37 +106,12 @@ const Navbar = ({ onMenuOpen }) => {
         </div>
       </div>
 
-      <div className="flex items-center gap-3 sm:gap-5">
-        {/* Connection status badge */}
-        <div 
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-all duration-300 border ${
-            aiStatus === 'online'
-              ? 'bg-emerald-50/80 text-emerald-700 border-emerald-200/50 shadow-emerald-100/50'
-              : aiStatus === 'offline'
-              ? 'bg-rose-50/80 text-rose-700 border-rose-200/50 shadow-rose-100/50'
-              : 'bg-amber-50/80 text-amber-700 border-amber-200/50 shadow-amber-100/50'
-          }`}
-          title={aiStatus === 'online' ? 'Face recognition service is active' : 'AI service is offline'}
-        >
-          {aiStatus === 'online' ? (
-            <>
-              <BrainCircuit className="h-4 w-4 animate-pulse text-emerald-500" />
-              <span className="hidden sm:inline tracking-wide">AI Core Online</span>
-            </>
-          ) : aiStatus === 'offline' ? (
-            <>
-              <WifiOff className="h-4 w-4" />
-              <span className="hidden sm:inline tracking-wide">AI Core Offline</span>
-            </>
-          ) : (
-            <>
-              <div className="flex h-4 w-4 items-center justify-center">
-                <span className="absolute inline-flex h-3 w-3 animate-ping rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500"></span>
-              </div>
-              <span className="hidden sm:inline tracking-wide">Connecting...</span>
-            </>
-          )}
+      <div className="flex items-center gap-2 sm:gap-4">
+        {/* Connection status badges */}
+        <div className="flex flex-col sm:flex-row gap-1.5">
+          <StatusBadge status={backendStatus} label="API" icon={Wifi} />
+          <StatusBadge status={dbStatus} label="DB" icon={Wifi} />
+          <StatusBadge status={aiStatus} label="AI" icon={BrainCircuit} />
         </div>
 
         {/* Notifications Icon */}

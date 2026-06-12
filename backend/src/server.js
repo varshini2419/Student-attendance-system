@@ -51,6 +51,18 @@ app.get('/', (req, res) => {
   });
 });
 
+// Health check endpoint
+const mongoose = require('mongoose');
+const healthCheck = (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: 'online',
+    dbConnected: mongoose.connection.readyState === 1
+  });
+};
+app.get('/health', healthCheck);
+app.get('/api/health', healthCheck);
+
 // 404 Route handler
 app.use((req, res, next) => {
   res.status(404).json({
