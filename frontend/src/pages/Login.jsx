@@ -71,45 +71,44 @@ const Login = () => {
 
   return (
     <div className="flex h-screen w-screen bg-white">
-      {/* Left Side - AI Illustration Panel */}
-      <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-slate-900 p-12 lg:flex">
+      {/* Left Side - Academic Illustration Panel */}
+      <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-brand-950 p-12 lg:flex">
         {/* Animated Background Gradients */}
-        <div className="absolute -left-[10%] -top-[10%] h-[40%] w-[40%] rounded-full bg-brand-600/30 blur-[120px]"></div>
-        <div className="absolute -bottom-[10%] -right-[10%] h-[40%] w-[40%] rounded-full bg-indigo-600/30 blur-[120px]"></div>
-        <div className="absolute left-[30%] top-[40%] h-[20%] w-[20%] rounded-full bg-emerald-500/20 blur-[80px]"></div>
+        <div className="absolute -left-[10%] -top-[10%] h-[50%] w-[50%] rounded-full bg-brand-600/30 blur-[120px]"></div>
+        <div className="absolute -bottom-[10%] -right-[10%] h-[50%] w-[50%] rounded-full bg-blue-500/20 blur-[120px]"></div>
 
         <div className="relative z-10 flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-white backdrop-blur-xl border border-white/20 shadow-xl">
-            <BrainCircuit className="h-7 w-7 text-brand-400" />
+            <BrainCircuit className="h-7 w-7 text-blue-400" />
           </div>
-          <span className="text-xl font-bold text-white tracking-wide">Smart<span className="text-brand-400">AI</span></span>
+          <span className="text-xl font-bold text-white tracking-wide">CSD & CSIT</span>
         </div>
 
         <div className="relative z-10 my-auto max-w-lg">
-          <h1 className="text-5xl font-extrabold text-white leading-[1.1] tracking-tight">
-            Next-Gen <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-indigo-400">
-              Student Attendance
+          <h1 className="text-5xl font-extrabold text-white leading-[1.15] tracking-tight">
+            Internships <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-brand-300">
+              Attendance System
             </span>
           </h1>
           <p className="mt-6 text-lg text-slate-300 leading-relaxed font-medium">
-            Seamless facial recognition. Real-time analytics. Enterprise-grade security. Managing campus attendance has never been this effortless.
+            Seamless facial recognition. Real-time analytics. Enterprise-grade security. Managing academic internships has never been this effortless.
           </p>
           
           <div className="mt-12 flex gap-4">
             <div className="flex items-center gap-3 rounded-full bg-white/5 border border-white/10 px-4 py-2 backdrop-blur-md">
-              <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></div>
+              <div className="h-2 w-2 rounded-full bg-blue-400 animate-pulse"></div>
               <span className="text-sm font-semibold text-slate-200">System Online</span>
             </div>
             <div className="flex items-center gap-3 rounded-full bg-white/5 border border-white/10 px-4 py-2 backdrop-blur-md">
-              <CheckCircle2 className="h-4 w-4 text-brand-400" />
+              <CheckCircle2 className="h-4 w-4 text-blue-400" />
               <span className="text-sm font-semibold text-slate-200">Secure Access</span>
             </div>
           </div>
         </div>
 
-        <div className="relative z-10 text-sm font-medium text-slate-500">
-          &copy; {new Date().getFullYear()} Smart AI Systems. All rights reserved.
+        <div className="relative z-10 text-sm font-medium text-slate-400">
+          &copy; {new Date().getFullYear()} CSD & CSIT Department. All rights reserved.
         </div>
       </div>
 
@@ -119,10 +118,10 @@ const Login = () => {
           
           {/* Mobile Header (Hidden on Desktop) */}
           <div className="mb-10 flex flex-col items-center justify-center text-center lg:hidden">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-600 to-indigo-600 text-white shadow-lg shadow-brand-500/30">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-600 to-brand-800 text-white shadow-lg shadow-brand-500/30">
               <BrainCircuit className="h-8 w-8" />
             </div>
-            <h2 className="mt-5 text-3xl font-extrabold text-slate-900 tracking-tight">SmartAI</h2>
+            <h2 className="mt-5 text-2xl font-extrabold text-slate-900 tracking-tight">CSD & CSIT Internships</h2>
             <p className="mt-2 text-sm text-slate-500 font-medium">Sign in to your dashboard</p>
           </div>
 
@@ -185,7 +184,7 @@ const Login = () => {
             <button
               type="submit"
               disabled={loading}
-              className="group flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-lg shadow-slate-900/20 transition-all hover:bg-slate-800 hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-70 disabled:hover:translate-y-0 cursor-pointer"
+              className="group flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 py-3.5 text-sm font-bold text-white shadow-lg shadow-brand-700/20 transition-all hover:bg-brand-800 hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-70 disabled:hover:translate-y-0 cursor-pointer"
             >
               {loading ? (
                 <>

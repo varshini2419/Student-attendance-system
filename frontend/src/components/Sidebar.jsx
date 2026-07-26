@@ -9,7 +9,7 @@ import {
   FileSpreadsheet,
   LogOut,
   X,
-  Sparkles,
+  GraduationCap,
   Fingerprint
 } from 'lucide-react';
 
@@ -46,12 +46,12 @@ const Sidebar = ({ isOpen, onClose }) => {
         {/* Sidebar Header */}
         <div className="flex h-[76px] items-center justify-between border-b border-slate-100 px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-indigo-600 text-white shadow-lg shadow-brand-500/30">
-              <Sparkles className="h-5 w-5" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-blue-800 text-white shadow-lg shadow-brand-500/30">
+              <GraduationCap className="h-5 w-5" />
             </div>
             <div>
-              <span className="block text-lg font-extrabold text-slate-900 tracking-tight leading-none">Smart AI</span>
-              <span className="text-[10px] font-bold text-brand-600 tracking-[0.2em] uppercase mt-1 block">Attendance</span>
+              <span className="block text-lg font-extrabold text-slate-900 tracking-tight leading-none">CSD & CSIT</span>
+              <span className="text-[10px] font-bold text-brand-700 tracking-[0.2em] uppercase mt-1 block">Internships</span>
             </div>
           </div>
           <button

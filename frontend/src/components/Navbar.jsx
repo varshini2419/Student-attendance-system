@@ -18,7 +18,7 @@ const Navbar = ({ onMenuOpen }) => {
       case '/realtime-attendance': return 'Real-Time Webcam Scan';
       case '/logs': return 'Attendance History';
       case '/reports': return 'Reports & Downloads';
-      default: return 'Smart Attendance AI';
+      default: return 'CSD & CSIT Internships Attendance';
     }
   };
 
