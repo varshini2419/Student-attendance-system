@@ -296,6 +296,19 @@ exports.recognizeFace = async (req, res) => {
     // Convert distance to fake confidence % (0.64 is worst, 0.0 is perfect)
     const confidence = Math.max(0, 1 - (bestDistance / 0.64));
 
+    // Threshold logic
+    const MATCH_THRESHOLD = parseFloat(process.env.MATCH_THRESHOLD) || 0.60;
+    
+    if (confidence < MATCH_THRESHOLD) {
+      const thresholdPercent = Math.round(MATCH_THRESHOLD * 100);
+      return res.status(200).json({
+        faceDetected: true,
+        matched: false,
+        confidence: confidence,
+        message: `Face match is below ${thresholdPercent}%. Please align your face and try again.`
+      });
+    }
+
     if (existingRecord && existingRecord.status === 'Present') {
       return res.status(200).json({
         faceDetected: true,

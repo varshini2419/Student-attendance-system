@@ -192,7 +192,8 @@ const RealTimeAttendance = () => {
          setDetectedStudent({
             name: "Unknown",
             id: "-",
-            confidence: 0
+            confidence: result.confidence ? Math.round(result.confidence * 100) : 0,
+            message: result.message
          });
       }
 
@@ -426,6 +427,11 @@ const RealTimeAttendance = () => {
                   <span className={`block font-black text-xl truncate ${detectedStudent.name === 'Unknown' ? 'text-rose-500' : 'text-slate-900'}`}>
                     {detectedStudent.name}
                   </span>
+                  {detectedStudent.message && detectedStudent.name === 'Unknown' && (
+                    <span className="block text-xs font-bold text-rose-500 mt-2 whitespace-normal">
+                      {detectedStudent.message}
+                    </span>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100">
