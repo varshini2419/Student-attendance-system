@@ -116,6 +116,18 @@ const Students = () => {
       return;
     }
 
+    if (!['CSD', 'CSIT'].includes(branch)) {
+      setFormError('Invalid Branch selected. Only CSD and CSIT are allowed.');
+      setSaving(false);
+      return;
+    }
+
+    if (!['A', 'B'].includes(section)) {
+      setFormError('Invalid Section selected. Only A and B are allowed.');
+      setSaving(false);
+      return;
+    }
+
     try {
       if (modalMode === 'create') {
         const response = await API.post('/students', formData);
@@ -153,8 +165,8 @@ const Students = () => {
   };
 
   // Extract unique branches and sections for filter dropdowns
-  const uniqueBranches = ['CSE', 'ECE', 'EEE', 'IT', 'MECH', 'CIVIL'];
-  const uniqueSections = ['A', 'B', 'C', 'D'];
+  const uniqueBranches = ['CSD', 'CSIT'];
+  const uniqueSections = ['A', 'B'];
 
   return (
     <div className="space-y-8 animate-fade-in-up">
