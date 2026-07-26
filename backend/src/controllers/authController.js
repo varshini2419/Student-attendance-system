@@ -126,7 +126,7 @@ exports.seedUsers = async (req, res) => {
       const admin = await User.create({
         name: 'System Admin',
         email: 'admin@attendance.com',
-        password: 'Admin@123', // Will be hashed automatically by pre-save hook
+        password: 'internship2026', // Will be hashed automatically by pre-save hook
         role: 'admin'
       });
       seeded.push({ email: admin.email, role: admin.role });
@@ -136,7 +136,7 @@ exports.seedUsers = async (req, res) => {
       const faculty = await User.create({
         name: 'Faculty Member',
         email: 'faculty@attendance.com',
-        password: 'Faculty@123', // Will be hashed automatically by pre-save hook
+        password: 'internship2026', // Will be hashed automatically by pre-save hook
         role: 'faculty'
       });
       seeded.push({ email: faculty.email, role: faculty.role });

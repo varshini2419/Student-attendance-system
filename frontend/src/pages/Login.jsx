@@ -59,11 +59,11 @@ const Login = () => {
   // Quick fill helper
   const fillCredentials = (role) => {
     if (role === 'admin') {
-      setEmail('admin@gmail.com');
-      setPassword('admin123');
+      setEmail('admin@attendance.com');
+      setPassword('');
     } else {
-      setEmail('faculty@gmail.com');
-      setPassword('faculty123');
+      setEmail('faculty@attendance.com');
+      setPassword('');
     }
     setLocalError('');
     setSeedSuccess('');
@@ -211,20 +211,25 @@ const Login = () => {
             </span>
             <div className="grid grid-cols-2 gap-3">
               <button
+                type="button"
                 onClick={() => fillCredentials('admin')}
                 className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-3 text-center transition-all hover:border-brand-300 hover:bg-brand-50 hover:shadow-sm active:scale-[0.97] cursor-pointer"
               >
                 <span className="text-[13px] font-bold text-slate-800">Admin</span>
-                <span className="text-[10px] font-semibold text-slate-400 mt-0.5">Full Access</span>
+                <span className="text-[10px] font-semibold text-slate-400 mt-0.5">admin@attendance.com</span>
               </button>
               <button
+                type="button"
                 onClick={() => fillCredentials('faculty')}
                 className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-3 text-center transition-all hover:border-indigo-300 hover:bg-indigo-50 hover:shadow-sm active:scale-[0.97] cursor-pointer"
               >
                 <span className="text-[13px] font-bold text-slate-800">Faculty</span>
-                <span className="text-[10px] font-semibold text-slate-400 mt-0.5">Class Access</span>
+                <span className="text-[10px] font-semibold text-slate-400 mt-0.5">faculty@attendance.com</span>
               </button>
             </div>
+            <p className="mt-4 text-center text-xs font-semibold text-slate-500">
+              Default Password: internship2026 (Please enter it manually.)
+            </p>
           </div>
 
           {/* Seed Database Option */}
