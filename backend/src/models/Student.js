@@ -34,6 +34,22 @@ const studentSchema = new mongoose.Schema(
         'Please add a valid email'
       ]
     },
+    year: {
+      type: String,
+      enum: {
+        values: ['First Year', 'Second Year', 'Third Year', 'Fourth Year'],
+        message: 'Year must be one of: First Year, Second Year, Third Year, Fourth Year'
+      },
+      default: null
+    },
+    category: {
+      type: String,
+      enum: {
+        values: ['Front Lab', 'Ideal Lab'],
+        message: 'Category must be one of: Front Lab, Ideal Lab'
+      },
+      default: null
+    },
     embeddings: {
       type: [[Number]], // Array of arrays of numbers (e.g. 20-30 face embeddings of size 128 or 512)
       default: []

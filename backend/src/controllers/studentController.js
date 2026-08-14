@@ -59,11 +59,23 @@ exports.getStudentById = async (req, res) => {
 // @access  Private (Admin only)
 exports.createStudent = async (req, res) => {
   try {
-    const { name, rollNumber, branch, section, email } = req.body;
+    const { name, rollNumber, branch, section, email, year, category } = req.body;
 
     // Validate inputs
-    if (!name || !rollNumber || !branch || !section || !email) {
+    if (!name || !rollNumber || !branch || !section || !email || !year || !category) {
       return res.status(400).json({ success: false, message: 'Please provide all details' });
+    }
+
+    // Validate year enum
+    const validYears = ['First Year', 'Second Year', 'Third Year', 'Fourth Year'];
+    if (!validYears.includes(year)) {
+      return res.status(400).json({ success: false, message: 'Invalid year. Must be: ' + validYears.join(', ') });
+    }
+
+    // Validate category enum
+    const validCategories = ['Front Lab', 'Ideal Lab'];
+    if (!validCategories.includes(category)) {
+      return res.status(400).json({ success: false, message: 'Invalid category. Must be: ' + validCategories.join(', ') });
     }
 
     // Check if roll number already exists
@@ -83,7 +95,9 @@ exports.createStudent = async (req, res) => {
       rollNumber: rollNumber.toUpperCase(),
       branch,
       section: section.toUpperCase(),
-      email
+      email,
+      year,
+      category
     });
 
     res.status(201).json({
@@ -100,11 +114,27 @@ exports.createStudent = async (req, res) => {
 // @access  Private (Admin only)
 exports.updateStudent = async (req, res) => {
   try {
-    const { name, rollNumber, branch, section, email } = req.body;
+    const { name, rollNumber, branch, section, email, year, category } = req.body;
 
     let student = await Student.findById(req.params.id);
     if (!student) {
       return res.status(404).json({ success: false, message: 'Student not found' });
+    }
+
+    // Validate year if provided
+    if (year) {
+      const validYears = ['First Year', 'Second Year', 'Third Year', 'Fourth Year'];
+      if (!validYears.includes(year)) {
+        return res.status(400).json({ success: false, message: 'Invalid year. Must be: ' + validYears.join(', ') });
+      }
+    }
+
+    // Validate category if provided
+    if (category) {
+      const validCategories = ['Front Lab', 'Ideal Lab'];
+      if (!validCategories.includes(category)) {
+        return res.status(400).json({ success: false, message: 'Invalid category. Must be: ' + validCategories.join(', ') });
+      }
     }
 
     // Check if updating roll number and if the new roll number is already taken
@@ -128,6 +158,8 @@ exports.updateStudent = async (req, res) => {
     if (name) student.name = name;
     if (branch) student.branch = branch;
     if (section) student.section = section.toUpperCase();
+    if (year) student.year = year;
+    if (category) student.category = category;
 
     await student.save();
 

@@ -32,7 +32,9 @@ const Students = () => {
     rollNumber: '',
     branch: '',
     section: '',
-    email: ''
+    email: '',
+    year: '',
+    category: ''
   });
   const [editId, setEditId] = useState(null);
   const [formError, setFormError] = useState('');
@@ -78,7 +80,9 @@ const Students = () => {
       rollNumber: '',
       branch: '',
       section: '',
-      email: ''
+      email: '',
+      year: '',
+      category: ''
     });
     setFormError('');
     setModalMode('create');
@@ -91,7 +95,9 @@ const Students = () => {
       rollNumber: student.rollNumber,
       branch: student.branch,
       section: student.section,
-      email: student.email
+      email: student.email,
+      year: student.year || '',
+      category: student.category || ''
     });
     setFormError('');
     setEditId(student._id);
@@ -109,8 +115,8 @@ const Students = () => {
     setFormError('');
     setSaving(true);
 
-    const { name, rollNumber, branch, section, email } = formData;
-    if (!name || !rollNumber || !branch || !section || !email) {
+    const { name, rollNumber, branch, section, email, year, category } = formData;
+    if (!name || !rollNumber || !branch || !section || !email || !year || !category) {
       setFormError('Please fill in all the details.');
       setSaving(false);
       return;
@@ -270,6 +276,8 @@ const Students = () => {
                   <th className="px-6 py-4 font-bold">Student Profile</th>
                   <th className="px-6 py-4 font-bold">ID Number</th>
                   <th className="px-6 py-4 font-bold">Class</th>
+                  <th className="px-6 py-4 font-bold hidden md:table-cell">Year</th>
+                  <th className="px-6 py-4 font-bold hidden lg:table-cell">Category</th>
                   <th className="px-6 py-4 font-bold hidden md:table-cell">Contact</th>
                   <th className="px-6 py-4 font-bold">AI Status</th>
                   <th className="px-6 py-4 text-right font-bold">Manage</th>
@@ -302,6 +310,16 @@ const Students = () => {
                           <span className="font-bold text-slate-700">{student.branch}</span>
                           <span className="text-[11px] font-semibold text-slate-400">Section {student.section}</span>
                         </div>
+                      </td>
+                      <td className="px-6 py-4 text-slate-500 font-medium hidden md:table-cell">
+                        <span className="inline-flex items-center rounded-md bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                          {student.year || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-500 font-medium hidden lg:table-cell">
+                        <span className="inline-flex items-center rounded-md bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">
+                          {student.category || 'N/A'}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-slate-500 font-medium hidden md:table-cell">
                         {student.email}
@@ -452,6 +470,40 @@ const Students = () => {
                     >
                       <option value="" disabled>Select...</option>
                       {uniqueSections.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Year</label>
+                    <select
+                      name="year"
+                      value={formData.year}
+                      onChange={handleInputChange}
+                      className="w-full rounded-xl border border-slate-200 bg-white py-3 px-4 text-sm font-semibold text-slate-900 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 transition-all shadow-sm cursor-pointer"
+                      required
+                    >
+                      <option value="" disabled>Select...</option>
+                      <option value="First Year">First Year</option>
+                      <option value="Second Year">Second Year</option>
+                      <option value="Third Year">Third Year</option>
+                      <option value="Fourth Year">Fourth Year</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Category</label>
+                    <select
+                      name="category"
+                      value={formData.category}
+                      onChange={handleInputChange}
+                      className="w-full rounded-xl border border-slate-200 bg-white py-3 px-4 text-sm font-semibold text-slate-900 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 transition-all shadow-sm cursor-pointer"
+                      required
+                    >
+                      <option value="" disabled>Select...</option>
+                      <option value="Front Lab">Front Lab</option>
+                      <option value="Ideal Lab">Ideal Lab</option>
                     </select>
                   </div>
                 </div>

@@ -17,6 +17,11 @@ const Login = () => {
   const from = location.state?.from?.pathname || '/';
 
   useEffect(() => {
+    setEmail('');
+    setPassword('');
+  }, []);
+
+  useEffect(() => {
     if (token) {
       navigate(from, { replace: true });
     }
@@ -128,6 +133,7 @@ const Login = () => {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="off"
                   placeholder="name@university.edu"
                   className="w-full rounded-xl border border-slate-200 bg-white py-3.5 pl-12 pr-4 text-sm font-semibold text-slate-900 placeholder-slate-400 outline-none transition-all focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 shadow-sm"
                 />
@@ -144,6 +150,7 @@ const Login = () => {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="off"
                   placeholder="••••••••"
                   className="w-full rounded-xl border border-slate-200 bg-white py-3.5 pl-12 pr-4 text-sm font-semibold text-slate-900 placeholder-slate-400 outline-none transition-all focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 shadow-sm"
                 />
