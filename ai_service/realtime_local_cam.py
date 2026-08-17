@@ -34,9 +34,9 @@ def mark_attendance_in_db(student_id, student_name, roll_number):
     Checks if student has attendance marked today.
     If not, creates a new attendance record.
     Returns:
-        - "marked": if successfully marked present now.
-        - "already_marked": if already present.
-        - "error": if database insertion failed.
+        - ("marked", attendance_id): if successfully marked present now.
+        - ("already_marked", None): if already present.
+        - ("error", None): if database insertion failed.
     """
     today_str = get_today_date_string()
     
@@ -50,28 +50,28 @@ def mark_attendance_in_db(student_id, student_name, roll_number):
         
         if existing:
             if existing.get("status") == "Present":
-                return "already_marked"
+                return ("already_marked", None)
             else:
                 # Update status to present
                 db.attendances.update_one(
                     {"_id": existing["_id"]},
                     {"$set": {"status": "Present", "timestamp": datetime.utcnow()}}
                 )
-                return "marked"
+                return ("marked", existing["_id"])
         
         # Create new record
-        db.attendances.insert_one({
+        result = db.attendances.insert_one({
             "student": student_id,
             "date": today_str,
             "status": "Present",
             "timestamp": datetime.utcnow()
         })
         print(f"SUCCESS: Marked attendance for {student_name} ({roll_number}) on {today_str}")
-        return "marked"
+        return ("marked", result.inserted_id)
         
     except Exception as e:
         print(f"Database Error: {e}")
-        return "error"
+        return ("error", None)
 
 def run_realtime_recognition():
     # Initialize the FaceProcessor (loads SFace ONNX or Haar Cascade fallback)
@@ -163,7 +163,27 @@ def run_realtime_recognition():
                         roll_number = best_student["rollNumber"]
                         
                         # Mark attendance directly in MongoDB
-                        status = mark_attendance_in_db(student_id, student_name, roll_number)
+                        status, attendance_id = mark_attendance_in_db(student_id, student_name, roll_number)
+                        
+                        if status == "marked" and attendance_id:
+                            try:
+                                import os
+                                screenshots_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend/public/screenshots'))
+                                os.makedirs(screenshots_dir, exist_ok=True)
+                                
+                                filename = f"{student_id}_local_{attendance_id}.jpg"
+                                filepath = os.path.join(screenshots_dir, filename)
+                                
+                                cv2.imwrite(filepath, frame)
+                                
+                                screenshot_url = f"/screenshots/{filename}"
+                                db.attendances.update_one(
+                                    {"_id": attendance_id},
+                                    {"$set": {"screenshotUrl": screenshot_url}}
+                                )
+                                print(f"SCREENSHOT SAVED: {filename}")
+                            except Exception as e:
+                                print(f"Screenshot Error: {e}")
                         
                         last_recognized_id = student_id
                         last_recognized_status = status

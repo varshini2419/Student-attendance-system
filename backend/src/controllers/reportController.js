@@ -103,7 +103,8 @@ exports.downloadExcelReport = async (req, res) => {
       { header: 'Date', key: 'date', width: 15 },
       { header: 'Status', key: 'status', width: 12 },
       { header: 'Marked At', key: 'markedAt', width: 20 },
-      { header: 'Marked By', key: 'markedBy', width: 20 }
+      { header: 'Marked By', key: 'markedBy', width: 20 },
+      { header: 'Screenshot Reference', key: 'screenshotUrl', width: 25 }
     ];
 
     worksheet.columns = columns.map(col => ({
@@ -143,7 +144,8 @@ exports.downloadExcelReport = async (req, res) => {
         date: log.date,
         status: log.status,
         markedAt: new Date(log.timestamp).toLocaleTimeString(),
-        markedBy: log.markedBy ? `${log.markedBy.name} (${log.markedBy.role})` : 'System'
+        markedBy: log.markedBy ? `${log.markedBy.name} (${log.markedBy.role})` : 'System',
+        screenshotUrl: log.screenshotUrl || 'N/A'
       });
 
       // Style Status cell
@@ -166,6 +168,31 @@ exports.downloadExcelReport = async (req, res) => {
         };
       }
       dataRow.height = 20;
+
+      if (log.screenshotUrl) {
+        try {
+          const fs = require('fs');
+          const path = require('path');
+          const filename = log.screenshotUrl.split('/').pop();
+          const imagePath = path.join(__dirname, '../../public/screenshots', filename);
+          
+          if (fs.existsSync(imagePath)) {
+            const imageId = workbook.addImage({
+              filename: imagePath,
+              extension: 'jpeg'
+            });
+            worksheet.addImage(imageId, {
+              tl: { col: 9, row: dataRow.number - 1 },
+              ext: { width: 40, height: 40 }
+            });
+            dataRow.height = 45; // Increase row height for the image
+            dataRow.getCell(10).value = ''; // Remove the text URL
+          }
+        } catch (err) {
+          console.error("Failed to embed screenshot in Excel:", err);
+          // Fallback is leaving the text URL intact
+        }
+      }
     });
 
     res.setHeader(

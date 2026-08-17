@@ -54,8 +54,9 @@ app.use('/api/students', studentRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/reports', reportRoutes);
 
-// Serve static reports
+// Serve static reports and screenshots
 app.use('/reports', express.static(path.join(__dirname, '../public/reports')));
+app.use('/screenshots', express.static(path.join(__dirname, '../public/screenshots')));
 
 // Swagger API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));

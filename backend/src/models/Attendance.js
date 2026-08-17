@@ -31,6 +31,10 @@ const attendanceSchema = new mongoose.Schema(
     timestamp: {
       type: Date,
       default: Date.now
+    },
+    screenshotUrl: {
+      type: String,
+      required: false
     }
   },
   {

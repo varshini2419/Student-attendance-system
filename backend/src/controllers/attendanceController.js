@@ -321,7 +321,7 @@ exports.recognizeFace = async (req, res) => {
     }
 
     // Mark attendance
-    await Attendance.create({
+    const attendanceRecord = await Attendance.create({
       student: bestMatch._id,
       session: session._id,
       date: todayStr,
@@ -330,6 +330,28 @@ exports.recognizeFace = async (req, res) => {
       markedBy: req.user._id
     });
     console.log(`[MARKED PRESENT] ${bestMatch.name}`);
+
+    // Screenshot saving logic
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const screenshotsDir = path.join(__dirname, '../../public/screenshots');
+      if (!fs.existsSync(screenshotsDir)) {
+        fs.mkdirSync(screenshotsDir, { recursive: true });
+      }
+      
+      const fileName = `${bestMatch._id}_${session._id}_${attendanceRecord._id}.jpg`;
+      const filePath = path.join(screenshotsDir, fileName);
+      
+      const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+      await fs.promises.writeFile(filePath, base64Data, 'base64');
+      
+      attendanceRecord.screenshotUrl = `/screenshots/${fileName}`;
+      await attendanceRecord.save();
+      console.log(`[SCREENSHOT SAVED] ${fileName}`);
+    } catch (screenshotError) {
+      console.error('[SCREENSHOT ERROR]', screenshotError);
+    }
 
     return res.status(200).json({
       faceDetected: true,
@@ -545,25 +567,63 @@ exports.stopSession = async (req, res) => {
 
     console.log(`[SESSION STOPPED] Total Present: ${presentStudentIds.length}, Total Absent: ${absentDocs.length}`);
 
-    // Generate Excel automatically
+    // Generate Excel automatically using exceljs
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Attendance Report');
+
     const records = await Attendance.find({ session: session._id })
       .populate('student', 'name rollNumber')
       .sort({ status: -1, detectedTime: 1 });
 
-    const data = records.map(record => ({
-      'Roll No': record.student ? record.student.rollNumber : 'Unknown',
-      'Student Name': record.student ? record.student.name : 'Unknown',
-      'Status': record.status,
-      'Detection Time': record.status === 'Present' ? record.detectedTime : '-',
-      'Session ID': session.sessionId
-    }));
+    worksheet.columns = [
+      { header: 'Roll No', key: 'rollNo', width: 18 },
+      { header: 'Student Name', key: 'studentName', width: 25 },
+      { header: 'Status', key: 'status', width: 15 },
+      { header: 'Detection Time', key: 'detectionTime', width: 18 },
+      { header: 'Session ID', key: 'sessionId', width: 22 },
+      { header: 'Screenshot Reference', key: 'screenshot', width: 25 }
+    ];
 
-    const worksheet = xlsx.utils.json_to_sheet(data);
-    const workbook = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(workbook, worksheet, 'Attendance Report');
-    
+    worksheet.getRow(1).font = { bold: true };
+
     const fs = require('fs');
     const path = require('path');
+
+    records.forEach((record, index) => {
+      const dataRow = worksheet.addRow({
+        rollNo: record.student ? record.student.rollNumber : 'Unknown',
+        studentName: record.student ? record.student.name : 'Unknown',
+        status: record.status,
+        detectionTime: record.status === 'Present' ? record.detectedTime : '-',
+        sessionId: session.sessionId,
+        screenshot: record.screenshotUrl || 'N/A'
+      });
+      dataRow.height = 20;
+
+      if (record.screenshotUrl) {
+        try {
+          const filename = record.screenshotUrl.split('/').pop();
+          const imagePath = path.join(__dirname, '../../public/screenshots', filename);
+          
+          if (fs.existsSync(imagePath)) {
+            const imageId = workbook.addImage({
+              filename: imagePath,
+              extension: 'jpeg'
+            });
+            worksheet.addImage(imageId, {
+              tl: { col: 5, row: dataRow.number - 1 }, // 6th column (0-indexed 5)
+              ext: { width: 40, height: 40 }
+            });
+            dataRow.height = 45;
+            dataRow.getCell(6).value = ''; // Clear text
+          }
+        } catch (err) {
+          console.error("Failed to embed screenshot:", err);
+        }
+      }
+    });
+
     const reportsDir = path.join(__dirname, '../../public/reports');
     if (!fs.existsSync(reportsDir)) {
       fs.mkdirSync(reportsDir, { recursive: true });
@@ -571,7 +631,8 @@ exports.stopSession = async (req, res) => {
     
     const fileName = `${session.sessionId}_Attendance.xlsx`;
     const filePath = path.join(reportsDir, fileName);
-    xlsx.writeFile(workbook, filePath);
+    
+    await workbook.xlsx.writeFile(filePath);
     
     console.log(`[EXCEL GENERATED] ${filePath}`);
 
@@ -625,20 +686,61 @@ exports.downloadSessionExcel = async (req, res) => {
       .populate('student', 'name rollNumber')
       .sort({ status: -1, detectedTime: 1 });
 
-    const data = records.map(record => ({
-      'Session ID': session.sessionId,
-      'Date': session.date,
-      'Roll No': record.student ? record.student.rollNumber : 'Unknown',
-      'Student Name': record.student ? record.student.name : 'Unknown',
-      'Status': record.status,
-      'Detected Time': record.status === 'Present' ? record.detectedTime : '-'
-    }));
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Attendance Report');
 
-    const worksheet = xlsx.utils.json_to_sheet(data);
-    const workbook = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(workbook, worksheet, 'Attendance Report');
+    worksheet.columns = [
+      { header: 'Session ID', key: 'sessionId', width: 22 },
+      { header: 'Date', key: 'date', width: 15 },
+      { header: 'Roll No', key: 'rollNo', width: 18 },
+      { header: 'Student Name', key: 'studentName', width: 25 },
+      { header: 'Status', key: 'status', width: 15 },
+      { header: 'Detected Time', key: 'detectedTime', width: 18 },
+      { header: 'Screenshot Reference', key: 'screenshot', width: 25 }
+    ];
 
-    const buffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    worksheet.getRow(1).font = { bold: true };
+
+    const fs = require('fs');
+    const path = require('path');
+
+    records.forEach((record, index) => {
+      const dataRow = worksheet.addRow({
+        sessionId: session.sessionId,
+        date: session.date,
+        rollNo: record.student ? record.student.rollNumber : 'Unknown',
+        studentName: record.student ? record.student.name : 'Unknown',
+        status: record.status,
+        detectedTime: record.status === 'Present' ? record.detectedTime : '-',
+        screenshot: record.screenshotUrl || 'N/A'
+      });
+      dataRow.height = 20;
+
+      if (record.screenshotUrl) {
+        try {
+          const filename = record.screenshotUrl.split('/').pop();
+          const imagePath = path.join(__dirname, '../../public/screenshots', filename);
+          
+          if (fs.existsSync(imagePath)) {
+            const imageId = workbook.addImage({
+              filename: imagePath,
+              extension: 'jpeg'
+            });
+            worksheet.addImage(imageId, {
+              tl: { col: 6, row: dataRow.number - 1 }, // 7th column (0-indexed 6)
+              ext: { width: 40, height: 40 }
+            });
+            dataRow.height = 45;
+            dataRow.getCell(7).value = ''; // Clear text
+          }
+        } catch (err) {
+          console.error("Failed to embed screenshot:", err);
+        }
+      }
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
 
     console.log('[EXCEL GENERATED]');
 
