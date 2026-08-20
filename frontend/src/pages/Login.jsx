@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { BrainCircuit, Lock, Mail, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
+import { BrainCircuit, Lock, Mail, AlertCircle, ServerCrash, CheckCircle2, ArrowRight } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState('');
+  const [seeding, setSeeding] = useState(false);
   const [seedSuccess, setSeedSuccess] = useState('');
 
-  const { login, error: authError, token, loading } = useAuth();
+  const { login, error: authError, token, seedDefaultUsers, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -41,6 +42,36 @@ const Login = () => {
     if (res.success) {
       navigate(from, { replace: true });
     }
+  };
+
+  const handleSeed = async () => {
+    setSeeding(true);
+    setLocalError('');
+    try {
+      const res = await seedDefaultUsers();
+      if (res.success) {
+        setSeedSuccess('Default Admin & Faculty accounts created successfully!');
+      } else {
+        setLocalError(res.message || 'Seeding failed. Is the MongoDB service running?');
+      }
+    } catch (err) {
+      setLocalError('Connection to backend failed. Please verify that the backend is running.');
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  // Quick fill helper
+  const fillCredentials = (role) => {
+    if (role === 'admin') {
+      setEmail('admin@attendance.com');
+      setPassword('');
+    } else {
+      setEmail('faculty@attendance.com');
+      setPassword('');
+    }
+    setLocalError('');
+    setSeedSuccess('');
   };
 
   return (
@@ -178,6 +209,46 @@ const Login = () => {
               )}
             </button>
           </form>
+
+          {/* Quick Credentials Panel */}
+          <div className="mt-8 border-t border-slate-200/60 pt-8">
+            <span className="mb-4 block text-center text-xs font-bold text-slate-400 uppercase tracking-widest">
+              Demo Accounts
+            </span>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => fillCredentials('admin')}
+                className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-3 text-center transition-all hover:border-brand-300 hover:bg-brand-50 hover:shadow-sm active:scale-[0.97] cursor-pointer"
+              >
+                <span className="text-[13px] font-bold text-slate-800">Admin</span>
+                <span className="text-[10px] font-semibold text-slate-400 mt-0.5">admin@attendance.com</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => fillCredentials('faculty')}
+                className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-3 text-center transition-all hover:border-indigo-300 hover:bg-indigo-50 hover:shadow-sm active:scale-[0.97] cursor-pointer"
+              >
+                <span className="text-[13px] font-bold text-slate-800">Faculty</span>
+                <span className="text-[10px] font-semibold text-slate-400 mt-0.5">faculty@attendance.com</span>
+              </button>
+            </div>
+            <p className="mt-4 text-center text-xs font-semibold text-slate-500">
+              Default Password: internship2026 (Please enter it manually.)
+            </p>
+          </div>
+
+          {/* Seed Database Option */}
+          <div className="mt-8 text-center">
+            <button
+              onClick={handleSeed}
+              disabled={seeding}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-brand-600 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              <ServerCrash className="h-4 w-4" />
+              {seeding ? 'Configuring...' : 'System Setup (Seed Database)'}
+            </button>
+          </div>
 
         </div>
       </div>
