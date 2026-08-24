@@ -5,10 +5,7 @@ const xlsx = require('xlsx');
 
 // Helper to get local date string YYYY-MM-DD
 const getLocalDateString = (dateInput = new Date()) => {
-  const d = new Date(dateInput);
-  const offset = d.getTimezoneOffset();
-  const localDate = new Date(d.getTime() - offset * 60 * 1000);
-  return localDate.toISOString().split('T')[0];
+  return new Date(dateInput).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 };
 
 // @desc    Mark attendance manually
@@ -462,8 +459,9 @@ exports.recognizeFace = async (req, res) => {
       date: todayStr,
       status: 'Present',
       detectedTime: new Date().toLocaleTimeString(
-        'en-US',
+        'en-IN',
         {
+          timeZone: 'Asia/Kolkata',
           hour: '2-digit',
           minute: '2-digit'
         }
@@ -933,7 +931,7 @@ exports.stopSession = async (req, res) => {
           status: record.status,
           detectionTime:
             record.status === 'Present'
-              ? record.detectedTime
+              ? new Date(record.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
               : '-',
           sessionId: session.sessionId,
           screenshot:

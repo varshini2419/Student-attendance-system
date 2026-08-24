@@ -5,10 +5,7 @@ const ExcelJS = require('exceljs');
 
 // Helper to get local date string YYYY-MM-DD
 const getLocalDateString = (dateInput = new Date()) => {
-  const d = new Date(dateInput);
-  const offset = d.getTimezoneOffset();
-  const localDate = new Date(d.getTime() - offset * 60 * 1000);
-  return localDate.toISOString().split('T')[0];
+  return new Date(dateInput).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 };
 
 // Common function to query logs based on request filters
@@ -65,7 +62,7 @@ exports.downloadExcelReport = async (req, res) => {
     worksheet.getRow(1).height = 40;
 
     // Filter information
-    worksheet.getCell('A2').value = `Generated On: ${new Date().toLocaleString()}`;
+    worksheet.getCell('A2').value = `Generated On: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`;
     worksheet.getCell('A2').font = { italic: true };
     
     let filterStr = 'Filters: None';
@@ -143,7 +140,7 @@ exports.downloadExcelReport = async (req, res) => {
         section: log.student.section,
         date: log.date,
         status: log.status,
-        markedAt: new Date(log.timestamp).toLocaleTimeString(),
+        markedAt: new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
         markedBy: log.markedBy ? `${log.markedBy.name} (${log.markedBy.role})` : 'System',
         screenshotUrl: log.screenshotUrl || 'N/A'
       });
@@ -241,7 +238,7 @@ exports.downloadPdfReport = async (req, res) => {
     // Meta-data Block
     doc.fillColor('#374151')
        .fontSize(9)
-       .text(`Generated: ${new Date().toLocaleString()}`, 400, 42, { align: 'right' });
+       .text(`Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`, 400, 42, { align: 'right' });
 
     let filterStr = 'Filters: None';
     const filters = [];
@@ -344,7 +341,7 @@ exports.downloadPdfReport = async (req, res) => {
       doc.text(log.status, 440, y + 5, { width: 45, align: 'center' });
       
       doc.fillColor('#374151').font('Helvetica');
-      doc.text(new Date(log.timestamp).toLocaleTimeString(), 490, y + 5, { width: 70, align: 'center' });
+      doc.text(new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }), 490, y + 5, { width: 70, align: 'center' });
 
       // Draw bottom line border
       doc.strokeColor('#E5E7EB').lineWidth(0.5).moveTo(30, y + 18).lineTo(565, y + 18).stroke();
