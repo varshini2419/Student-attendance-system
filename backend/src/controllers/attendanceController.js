@@ -870,7 +870,7 @@ exports.stopSession = async (req, res) => {
       })
         .populate(
           'student',
-          'name rollNumber'
+          'name rollNumber branch year category'
         )
         .sort({
           status: -1,
@@ -887,6 +887,21 @@ exports.stopSession = async (req, res) => {
         header: 'Student Name',
         key: 'studentName',
         width: 25
+      },
+      {
+        header: 'Branch',
+        key: 'branch',
+        width: 15
+      },
+      {
+        header: 'Year',
+        key: 'year',
+        width: 15
+      },
+      {
+        header: 'Category',
+        key: 'category',
+        width: 15
       },
       {
         header: 'Status',
@@ -928,6 +943,18 @@ exports.stopSession = async (req, res) => {
             record.student
               ? record.student.name
               : 'Unknown',
+          branch:
+            record.student
+              ? record.student.branch || 'N/A'
+              : 'Unknown',
+          year:
+            record.student
+              ? record.student.year || 'N/A'
+              : 'Unknown',
+          category:
+            record.student
+              ? record.student.category || 'N/A'
+              : 'Unknown',
           status: record.status,
           detectionTime:
             record.status === 'Present'
@@ -966,7 +993,7 @@ exports.stopSession = async (req, res) => {
               imageId,
               {
                 tl: {
-                  col: 5,
+                  col: 8,
                   row:
                     dataRow.number - 1
                 },
@@ -978,7 +1005,7 @@ exports.stopSession = async (req, res) => {
             );
 
             dataRow.height = 45;
-            dataRow.getCell(6).value = '';
+            dataRow.getCell(9).value = '';
           }
         } catch (err) {
           console.error(
@@ -1106,7 +1133,7 @@ exports.downloadSessionExcel =
         })
           .populate(
             'student',
-            'name rollNumber'
+            'name rollNumber branch year category'
           )
           .sort({
             status: -1,
@@ -1126,16 +1153,6 @@ exports.downloadSessionExcel =
 
       worksheet.columns = [
         {
-          header: 'Session ID',
-          key: 'sessionId',
-          width: 22
-        },
-        {
-          header: 'Date',
-          key: 'date',
-          width: 15
-        },
-        {
           header: 'Roll No',
           key: 'rollNo',
           width: 18
@@ -1146,14 +1163,34 @@ exports.downloadSessionExcel =
           width: 25
         },
         {
+          header: 'Branch',
+          key: 'branch',
+          width: 15
+        },
+        {
+          header: 'Year',
+          key: 'year',
+          width: 15
+        },
+        {
+          header: 'Category',
+          key: 'category',
+          width: 15
+        },
+        {
           header: 'Status',
           key: 'status',
           width: 15
         },
         {
-          header: 'Detected Time',
+          header: 'Detection Time',
           key: 'detectedTime',
           width: 18
+        },
+        {
+          header: 'Session ID',
+          key: 'sessionId',
+          width: 22
         },
         {
           header: 'Screenshot Reference',
@@ -1182,6 +1219,18 @@ exports.downloadSessionExcel =
             studentName:
               record.student
                 ? record.student.name
+                : 'Unknown',
+            branch:
+              record.student
+                ? record.student.branch || 'N/A'
+                : 'Unknown',
+            year:
+              record.student
+                ? record.student.year || 'N/A'
+                : 'Unknown',
+            category:
+              record.student
+                ? record.student.category || 'N/A'
                 : 'Unknown',
             status: record.status,
             detectedTime:
@@ -1224,7 +1273,7 @@ exports.downloadSessionExcel =
                 imageId,
                 {
                   tl: {
-                    col: 6,
+                    col: 8,
                     row:
                       dataRow.number -
                       1
@@ -1237,7 +1286,7 @@ exports.downloadSessionExcel =
               );
 
               dataRow.height = 45;
-              dataRow.getCell(7).value =
+              dataRow.getCell(9).value =
                 '';
             }
           } catch (err) {

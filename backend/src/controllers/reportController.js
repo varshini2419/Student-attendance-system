@@ -34,7 +34,7 @@ const queryAttendanceData = async (query) => {
   }
 
   return await Attendance.find(attendanceQuery)
-    .populate('student', 'name rollNumber branch section email')
+    .populate('student', 'name rollNumber branch section email year category')
     .populate('markedBy', 'name email role')
     .sort({ date: -1, timestamp: -1 });
 };
@@ -96,6 +96,8 @@ exports.downloadExcelReport = async (req, res) => {
       { header: 'Roll Number', key: 'rollNumber', width: 18 },
       { header: 'Student Name', key: 'name', width: 25 },
       { header: 'Branch', key: 'branch', width: 15 },
+      { header: 'Year', key: 'year', width: 15 },
+      { header: 'Category', key: 'category', width: 15 },
       { header: 'Section', key: 'section', width: 12 },
       { header: 'Date', key: 'date', width: 15 },
       { header: 'Status', key: 'status', width: 12 },
@@ -136,7 +138,9 @@ exports.downloadExcelReport = async (req, res) => {
         sno: index + 1,
         rollNumber: log.student.rollNumber,
         name: log.student.name,
-        branch: log.student.branch,
+        branch: log.student.branch || 'N/A',
+        year: log.student.year || 'N/A',
+        category: log.student.category || 'N/A',
         section: log.student.section,
         date: log.date,
         status: log.status,
@@ -146,7 +150,7 @@ exports.downloadExcelReport = async (req, res) => {
       });
 
       // Style Status cell
-      const statusCell = dataRow.getCell(7);
+      const statusCell = dataRow.getCell(9);
       if (log.status === 'Present') {
         statusCell.font = { color: { argb: '15803D' }, bold: true }; // Green
       } else {
@@ -179,11 +183,11 @@ exports.downloadExcelReport = async (req, res) => {
               extension: 'jpeg'
             });
             worksheet.addImage(imageId, {
-              tl: { col: 9, row: dataRow.number - 1 },
+              tl: { col: 11, row: dataRow.number - 1 },
               ext: { width: 40, height: 40 }
             });
             dataRow.height = 45; // Increase row height for the image
-            dataRow.getCell(10).value = ''; // Remove the text URL
+            dataRow.getCell(12).value = ''; // Remove the text URL
           }
         } catch (err) {
           console.error("Failed to embed screenshot in Excel:", err);
