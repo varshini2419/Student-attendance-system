@@ -171,79 +171,30 @@ const RealTimeAttendance = () => {
         return;
       }
 
-      if (result.results && Array.isArray(result.results)) {
-        let latestMatchedStudent = null;
-        const newStudents = [];
-        
-        result.results.forEach(res => {
-          if (res.matched) {
-            latestMatchedStudent = {
-              name: res.name,
-              id: res.studentId,
-              confidence: Math.round(res.confidence * 100)
-            };
-            if (res.message === 'Attendance marked successfully') {
-              newStudents.push(latestMatchedStudent);
-            }
-          }
+      if (result.matched) {
+        setDetectedStudent({
+          name: result.name,
+          id: result.studentId,
+          confidence: Math.round(result.confidence * 100)
         });
-        
-        if (latestMatchedStudent) {
-           setDetectedStudent(latestMatchedStudent);
-        } else {
-           const firstUnmatched = result.results[0] || {};
-           setDetectedStudent({
-             name: "Unknown",
-             id: "-",
-             confidence: firstUnmatched.confidence ? Math.round(firstUnmatched.confidence * 100) : 0,
-             message: firstUnmatched.message
-           });
-        }
-        
-        if (newStudents.length > 0) {
+
+        // Add to attendance list if marked successfully
+        if (result.message === 'Attendance marked successfully') {
           setAttendanceList(prev => {
-            const added = [];
-            let updatedList = [...prev];
-            newStudents.forEach(newStudent => {
-               const exists = updatedList.find(s => s.id === newStudent.id);
-               if (!exists) {
-                 added.push(newStudent);
-                 updatedList = [newStudent, ...updatedList];
-               }
-            });
-            if (added.length > 0) {
-              const names = added.map(s => s.name).join(' and ');
-              speakText(`Welcome, ${names}`);
-            }
-            return updatedList;
+            const exists = prev.find(s => s.id === result.studentId);
+            if (exists) return prev;
+            
+            speakText(`Welcome, ${result.name}`);
+            return [{ name: result.name, id: result.studentId }, ...prev];
           });
         }
       } else {
-        // Fallback for backward compatibility
-        if (result.matched) {
-          setDetectedStudent({
-            name: result.name,
-            id: result.studentId,
-            confidence: Math.round(result.confidence * 100)
-          });
-
-          if (result.message === 'Attendance marked successfully') {
-            setAttendanceList(prev => {
-              const exists = prev.find(s => s.id === result.studentId);
-              if (exists) return prev;
-              
-              speakText(`Welcome, ${result.name}`);
-              return [{ name: result.name, id: result.studentId }, ...prev];
-            });
-          }
-        } else {
-           setDetectedStudent({
-              name: "Unknown",
-              id: "-",
-              confidence: result.confidence ? Math.round(result.confidence * 100) : 0,
-              message: result.message
-           });
-        }
+         setDetectedStudent({
+            name: "Unknown",
+            id: "-",
+            confidence: result.confidence ? Math.round(result.confidence * 100) : 0,
+            message: result.message
+         });
       }
 
     } catch (err) {
@@ -252,39 +203,16 @@ const RealTimeAttendance = () => {
     }
   }, [speakText, activeSession]);
 
-  const isScanningRef = useRef(false);
-
   useEffect(() => {
-    let active = true;
-
-    const loop = async () => {
-      if (!active || !scanning || !activeSession || activeSession.status !== 'active') {
-        return;
-      }
-
-      if (!isScanningRef.current) {
-        isScanningRef.current = true;
-        const t0 = performance.now();
-        await scanFrame();
-        const t1 = performance.now();
-        console.log(`[PERF] Frontend total recognition request duration: ${(t1 - t0).toFixed(2)}ms`);
-        isScanningRef.current = false;
-      }
-
-      if (active) {
-        setTimeout(loop, 1000); // Wait 1 second AFTER previous request finishes
-      }
-    };
-
+    let intervalId = null;
     if (scanning && activeSession && activeSession.status === 'active') {
-      loop();
+      scanFrame();
+      intervalId = setInterval(scanFrame, 1000); // 1 second captures
     } else {
       setDetectedStudent(null);
-      isScanningRef.current = false;
     }
-
     return () => {
-      active = false;
+      if (intervalId) clearInterval(intervalId);
     };
   }, [scanning, scanFrame, activeSession]);
 

@@ -1,6 +1,5 @@
 const Student = require('../models/Student');
 const Attendance = require('../models/Attendance');
-const { invalidateCache } = require('./attendanceController');
 
 // @desc    Get all students (with optional search/filtering)
 // @route   GET /api/students
@@ -270,9 +269,6 @@ exports.registerFaces = async (req, res) => {
     );
 
     console.log(`[FACE REGISTER] MongoDB updated successfully for student ${studentId}\\n`);
-    
-    // Invalidate the cache to ensure new embeddings are picked up
-    if (invalidateCache) invalidateCache();
 
     res.status(200).json({
       success: true,

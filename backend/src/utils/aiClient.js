@@ -1,7 +1,9 @@
 const axios = require('axios');
 
 let aiServiceUrl = process.env.AI_SERVICE_URL || 'https://student-attendance-system-1-p2tq.onrender.com';
-
+if (aiServiceUrl.includes('127.0.0.1') || aiServiceUrl.includes('localhost')) {
+  aiServiceUrl = 'https://student-attendance-system-1-p2tq.onrender.com';
+}
 
 const aiClient = axios.create({
   baseURL: aiServiceUrl,
@@ -55,7 +57,10 @@ const pingAiService = async () => {
 const postToAi = async (endpoint, payload, maxRetries = 2) => {
   let attempt = 0;
   
-  // Removed pingAiService() here to avoid doubling network roundtrips
+  // Optionally ping first to ensure it's awake before sending huge image payloads
+  // but if the ping fails we still attempt the request (in case /api/health is temporarily unmapped)
+  await pingAiService();
+
   while (attempt < maxRetries) {
     try {
       console.log(`[AI CLIENT] Sending POST to ${endpoint} (Attempt ${attempt + 1}/${maxRetries})`);
