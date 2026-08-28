@@ -243,6 +243,37 @@ exports.markAttendanceByFace = async (req, res) => {
   }
 };
 
+// Memory Cache for Student Embeddings
+let studentEmbeddingsCache = null;
+let lastCacheUpdate = 0;
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+const getCachedStudents = async () => {
+  const now = Date.now();
+  if (studentEmbeddingsCache && (now - lastCacheUpdate) < CACHE_TTL) {
+    return studentEmbeddingsCache;
+  }
+  
+  console.log('[CACHE MISS] Fetching all student embeddings from MongoDB...');
+  const t0 = performance.now();
+  const students = await Student.find(
+    { embeddings: { $exists: true, $not: { $size: 0 } } },
+    { _id: 1, name: 1, rollNumber: 1, embeddings: 1, branch: 1, section: 1 }
+  );
+  const t1 = performance.now();
+  console.log(`[CACHE LOADED] Fetched ${students.length} students in ${(t1 - t0).toFixed(2)}ms`);
+  
+  studentEmbeddingsCache = students;
+  lastCacheUpdate = now;
+  return students;
+};
+
+exports.invalidateCache = () => {
+  studentEmbeddingsCache = null;
+  lastCacheUpdate = 0;
+  console.log('[CACHE INVALIDATED]');
+};
+
 // Helper for Cosine Distance
 const cosineDistance = (v1, v2) => {
   let dotProduct = 0.0;
@@ -296,11 +327,14 @@ exports.recognizeFace = async (req, res) => {
     let result;
 
     try {
+      const tAi0 = performance.now();
       result = await postToAi(
         '/api/recognize',
         { image },
         1
       );
+      const tAi1 = performance.now();
+      console.log(`[PERF] Node -> AI Service duration: ${(tAi1 - tAi0).toFixed(2)}ms`);
     } catch (aiError) {
       console.error(
         'AI Service Connection Error:',
@@ -328,208 +362,133 @@ exports.recognizeFace = async (req, res) => {
       });
     }
 
-    console.log('[FACE DETECTED]');
+    console.log(`[FACE DETECTED] Found ${result.faces.length} faces.`);
 
-    const face = result.faces[0];
+    // Use in-memory cache instead of querying DB on every frame
+    const students = await getCachedStudents();
 
-    if (
-      !face.embedding ||
-      face.embedding.length !== 128
-    ) {
-      return res.status(200).json({
-        faceDetected: true,
-        matched: false,
-        message: 'Invalid face embedding'
-      });
-    }
+    // FACE MATCH THRESHOLD: 50%
+    const MATCH_THRESHOLD = parseFloat(process.env.MATCH_THRESHOLD) || 0.50;
+    const todayStr = getLocalDateString();
+    const fs = require('fs');
+    const path = require('path');
 
-    const students = await Student.find(
-      {
-        embeddings: {
-          $exists: true,
-          $not: { $size: 0 }
-        }
-      },
-      {
-        _id: 1,
-        name: 1,
-        rollNumber: 1,
-        embeddings: 1
-      }
-    );
+    const processedResults = [];
+    const tMatch0 = performance.now();
 
-    let bestMatch = null;
-    let bestDistance = 0.64;
-    let closestObserved = 1.0;
-
-    for (const student of students) {
-      if (
-        !student.embeddings ||
-        student.embeddings.length === 0
-      ) {
+    for (const face of result.faces) {
+      if (!face.embedding || face.embedding.length !== 128) {
+        processedResults.push({ matched: false, message: 'Invalid face embedding' });
         continue;
       }
 
-      for (const refEmbedding of student.embeddings) {
-        const dist = cosineDistance(
-          face.embedding,
-          refEmbedding
-        );
+      let bestMatch = null;
+      let bestDistance = 0.64;
+      let closestObserved = 1.0;
 
-        if (dist < closestObserved) {
-          closestObserved = dist;
-        }
-
-        if (dist < bestDistance) {
-          bestDistance = dist;
-          bestMatch = student;
+      for (const student of students) {
+        if (!student.embeddings || student.embeddings.length === 0) continue;
+        for (const refEmbedding of student.embeddings) {
+          const dist = cosineDistance(face.embedding, refEmbedding);
+          if (dist < closestObserved) closestObserved = dist;
+          if (dist < bestDistance) {
+            bestDistance = dist;
+            bestMatch = student;
+          }
         }
       }
-    }
 
-    console.log(
-      `[FACE MATCHING] Closest distance found: ${closestObserved.toFixed(
-        3
-      )}`
-    );
+      if (!bestMatch) {
+        processedResults.push({ matched: false, message: `Face not matched (Closest: ${closestObserved.toFixed(3)})` });
+        continue;
+      }
 
-    if (!bestMatch) {
-      return res.status(200).json({
-        faceDetected: true,
-        matched: false,
-        message: `Face not matched (Closest: ${closestObserved.toFixed(
-          3
-        )})`
+      const confidence = Math.max(0, 1 - bestDistance / 0.64);
+
+      if (confidence < MATCH_THRESHOLD) {
+        const thresholdPercent = Math.round(MATCH_THRESHOLD * 100);
+        processedResults.push({ matched: false, confidence, message: `Face match is below ${thresholdPercent}%.` });
+        continue;
+      }
+
+      const existingRecord = await Attendance.findOne({
+        student: bestMatch._id,
+        session: session._id
       });
-    }
 
-    console.log(
-      `[STUDENT MATCHED] Found ${bestMatch.name} with distance ${bestDistance.toFixed(
-        3
-      )}`
-    );
+      if (existingRecord && existingRecord.status === 'Present') {
+         processedResults.push({
+           matched: true,
+           studentId: bestMatch._id,
+           name: bestMatch.name,
+           confidence,
+           message: 'Already marked present today'
+         });
+         continue;
+      }
 
-    const todayStr = getLocalDateString();
-
-    const existingRecord = await Attendance.findOne({
-      student: bestMatch._id,
-      session: session._id
-    });
-
-    // Convert distance to confidence
-    const confidence = Math.max(
-      0,
-      1 - bestDistance / 0.64
-    );
-
-    // FACE MATCH THRESHOLD: 50%
-    const MATCH_THRESHOLD =
-      parseFloat(process.env.MATCH_THRESHOLD) || 0.50;
-
-    if (confidence < MATCH_THRESHOLD) {
-      const thresholdPercent = Math.round(
-        MATCH_THRESHOLD * 100
-      );
-
-      return res.status(200).json({
-        faceDetected: true,
-        matched: false,
-        confidence,
-        message: `Face match is below ${thresholdPercent}%. Please align your face and try again.`
-      });
-    }
-
-    if (
-      existingRecord &&
-      existingRecord.status === 'Present'
-    ) {
-      return res.status(200).json({
-        faceDetected: true,
-        matched: true,
-        studentId: bestMatch._id,
-        name: bestMatch.name,
-        confidence,
-        message: 'Already marked present today'
-      });
-    }
-
-    const attendanceRecord = await Attendance.create({
-      student: bestMatch._id,
-      session: session._id,
-      date: todayStr,
-      status: 'Present',
-      detectedTime: new Date().toLocaleTimeString(
-        'en-IN',
-        {
-          timeZone: 'Asia/Kolkata',
-          hour: '2-digit',
-          minute: '2-digit'
-        }
-      ),
-      markedBy: req.user._id
-    });
-
-    console.log(
-      `[MARKED PRESENT] ${bestMatch.name}`
-    );
-
-    // Screenshot saving logic
-    try {
-      const fs = require('fs');
-      const path = require('path');
-
-      const screenshotsDir = path.join(
-        __dirname,
-        '../../public/screenshots'
-      );
-
-      if (!fs.existsSync(screenshotsDir)) {
-        fs.mkdirSync(screenshotsDir, {
-          recursive: true
+      try {
+        const attendanceRecord = await Attendance.create({
+          student: bestMatch._id,
+          session: session._id,
+          date: todayStr,
+          status: 'Present',
+          detectedTime: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }),
+          markedBy: req.user._id
         });
+
+        console.log(`[MARKED PRESENT] ${bestMatch.name}`);
+
+        try {
+          const screenshotsDir = path.join(__dirname, '../../public/screenshots');
+          if (!fs.existsSync(screenshotsDir)) {
+            fs.mkdirSync(screenshotsDir, { recursive: true });
+          }
+          const fileName = `${bestMatch._id}_${session._id}_${attendanceRecord._id}.jpg`;
+          const filePath = path.join(screenshotsDir, fileName);
+          const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+          await fs.promises.writeFile(filePath, base64Data, 'base64');
+          attendanceRecord.screenshotUrl = `/screenshots/${fileName}`;
+          await attendanceRecord.save();
+        } catch (screenshotError) {
+          console.error('[SCREENSHOT ERROR]', screenshotError);
+        }
+
+        processedResults.push({
+          matched: true,
+          studentId: bestMatch._id,
+          name: bestMatch.name,
+          confidence,
+          message: 'Attendance marked successfully'
+        });
+      } catch (err) {
+        if (err.code === 11000) {
+          processedResults.push({
+             matched: true,
+             studentId: bestMatch._id,
+             name: bestMatch.name,
+             confidence,
+             message: 'Already marked present today'
+          });
+        } else {
+          console.error('[DB ERROR]', err);
+        }
       }
-
-      const fileName =
-        `${bestMatch._id}_${session._id}_${attendanceRecord._id}.jpg`;
-
-      const filePath = path.join(
-        screenshotsDir,
-        fileName
-      );
-
-      const base64Data = image.replace(
-        /^data:image\/\w+;base64,/,
-        ''
-      );
-
-      await fs.promises.writeFile(
-        filePath,
-        base64Data,
-        'base64'
-      );
-
-      attendanceRecord.screenshotUrl =
-        `/screenshots/${fileName}`;
-
-      await attendanceRecord.save();
-
-      console.log(
-        `[SCREENSHOT SAVED] ${fileName}`
-      );
-    } catch (screenshotError) {
-      console.error(
-        '[SCREENSHOT ERROR]',
-        screenshotError
-      );
     }
+    const tMatch1 = performance.now();
+    console.log(`[PERF] Cosine matching & DB duration: ${(tMatch1 - tMatch0).toFixed(2)}ms`);
 
+    const firstResult = processedResults[0] || {};
     return res.status(200).json({
       faceDetected: true,
-      matched: true,
-      studentId: bestMatch._id,
-      name: bestMatch.name,
-      confidence,
-      message: 'Attendance marked successfully'
+      results: processedResults,
+      
+      // Backward compatibility fields
+      matched: firstResult.matched || false,
+      studentId: firstResult.studentId,
+      name: firstResult.name,
+      confidence: firstResult.confidence,
+      message: firstResult.message || 'Processed'
     });
   } catch (error) {
     console.error(
@@ -774,6 +733,8 @@ exports.startSession = async (req, res) => {
     console.log(
       `[SESSION STARTED] ${sessionId}`
     );
+    
+    exports.invalidateCache();
 
     res.status(201).json({
       success: true,
@@ -814,6 +775,7 @@ exports.stopSession = async (req, res) => {
     session.endTime = new Date();
 
     await session.save();
+    exports.invalidateCache();
 
     const presentRecords =
       await Attendance.find({

@@ -125,12 +125,20 @@ def recognize():
         return jsonify({"success": False, "message": "No image frame provided"}), 400
         
     img_b64 = data['image']
+    t0 = time.time()
     img = processor.decode_base64_image(img_b64)
+    t1 = time.time()
+    
     if img is None:
         return jsonify({"success": False, "message": "Failed to process image frame"}), 400
         
+    t_lock_start = time.time()
     with model_lock:
+        t_lock_acquired = time.time()
         extracted_faces = processor.extract_all_faces(img)
+    t2 = time.time()
+    
+    print(f"[PERF] AI Decode: {(t1-t0)*1000:.1f}ms | Lock wait: {(t_lock_acquired-t_lock_start)*1000:.1f}ms | Face Extraction: {(t2-t_lock_acquired)*1000:.1f}ms")
     
     if not extracted_faces:
         print("Face detected: NO")
