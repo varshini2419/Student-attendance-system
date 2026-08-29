@@ -20,39 +20,48 @@ import API from '../utils/api';
 const RealTimeAttendance = () => {
   const webcamRef = useRef(null);
   
-  // Session States
-  const [activeSession, setActiveSession] = useState(null); // { _id, sessionId, status, presentCount, absentCount, excelUrl }
+  const [activeSession, setActiveSession] = useState(null);
   const [scanning, setScanning] = useState(false);
-  
+  const [sessionName, setSessionName] = useState('');
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [attendanceList, setAttendanceList] = useState([]);
+  const [detectedStudent, setDetectedStudent] = useState(null);
   const [speechEnabled, setSpeechEnabled] = useState(true);
   const [cameraError, setCameraError] = useState(null);
 
-  const [detectedStudent, setDetectedStudent] = useState(null);
-  const [attendanceList, setAttendanceList] = useState([]);
-  
-  // Debug mode variables
-  const [debugMode, setDebugMode] = useState(true);
+  // Debug Diagnostics UI
+  const [debugMode, setDebugMode] = useState(false);
   const [debugInfo, setDebugInfo] = useState({
-    frameCaptured: 'NO',
     faceDetectorLoaded: 'YES',
     facesFound: 0,
-    backendResponse: 'Idle',
-    aiResponse: 'Idle'
+    frameCaptured: 'NO',
+    backendResponse: 'WAITING',
+    aiResponse: 'WAITING'
   });
 
+  // Handle Speech Feedback
   const speakText = useCallback((text) => {
     if (!speechEnabled || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
+    utterance.volume = 1;
+    utterance.rate = 1;
     window.speechSynthesis.speak(utterance);
   }, [speechEnabled]);
 
   // Handle Start Session
   const handleStartSession = async () => {
+    if (!sessionName.trim()) {
+      alert('Please enter a Session Name before initializing the scanner.');
+      return;
+    }
+    
     try {
-      const res = await API.post('/attendance/session/start');
+      setIsInitializing(true);
+      const res = await API.post('/attendance/session/start', {
+        sessionName: sessionName.trim()
+      });
+      
       if (res.data.success) {
         setActiveSession(res.data.data);
         setAttendanceList([]);
@@ -61,7 +70,9 @@ const RealTimeAttendance = () => {
       }
     } catch (err) {
       console.error('Error starting session:', err);
-      alert('Failed to start session');
+      alert(err.response?.data?.message || err.message || 'Failed to start session');
+    } finally {
+      setIsInitializing(false);
     }
   };
 
@@ -135,8 +146,27 @@ const RealTimeAttendance = () => {
     }
   };
 
+  const isScanningRef = useRef(false);
+  const loopTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    isScanningRef.current = scanning && activeSession && activeSession.status === 'active';
+  }, [scanning, activeSession]);
+
   const scanFrame = useCallback(async () => {
-    if (!webcamRef.current || !activeSession || activeSession.status !== 'active') return;
+    if (!isScanningRef.current) {
+      if (scanning && activeSession && activeSession.status === 'active') {
+        loopTimeoutRef.current = setTimeout(scanFrame, 1000);
+      } else {
+        setDetectedStudent(null);
+      }
+      return;
+    }
+
+    if (!webcamRef.current) {
+      loopTimeoutRef.current = setTimeout(scanFrame, 1000);
+      return;
+    }
 
     try {
       const imageSrc = webcamRef.current.getScreenshot({ width: 640, height: 480 });
@@ -200,19 +230,25 @@ const RealTimeAttendance = () => {
     } catch (err) {
       console.error('Scan API error:', err);
       setDebugInfo(prev => ({ ...prev, backendResponse: 'Failed' }));
+    } finally {
+      if (isScanningRef.current || (scanning && activeSession && activeSession.status === 'active')) {
+        loopTimeoutRef.current = setTimeout(scanFrame, 800);
+      } else {
+        setDetectedStudent(null);
+      }
     }
-  }, [speakText, activeSession]);
+  }, [speakText, activeSession, scanning]);
 
   useEffect(() => {
-    let intervalId = null;
     if (scanning && activeSession && activeSession.status === 'active') {
       scanFrame();
-      intervalId = setInterval(scanFrame, 1000); // 1 second captures
     } else {
       setDetectedStudent(null);
     }
     return () => {
-      if (intervalId) clearInterval(intervalId);
+      if (loopTimeoutRef.current) {
+        clearTimeout(loopTimeoutRef.current);
+      }
     };
   }, [scanning, scanFrame, activeSession]);
 
@@ -245,14 +281,25 @@ const RealTimeAttendance = () => {
           </button>
 
           {!activeSession && (
-            <button
-              onClick={handleStartSession}
-              className="group flex items-center justify-center gap-2.5 rounded-2xl px-6 py-3.5 text-sm font-extrabold text-white shadow-lg transition-all active:scale-95 bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/30"
-            >
-              <Play className="h-5 w-5" />
-              <span>INITIALIZE SCANNER</span>
-            </button>
-          )}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  type="text"
+                  placeholder="Enter Session Name (e.g. CSE-A Lab)"
+                  value={sessionName}
+                  onChange={(e) => setSessionName(e.target.value)}
+                  disabled={isInitializing}
+                  className="px-4 py-3 text-sm font-semibold text-slate-800 bg-white border border-slate-200 rounded-2xl shadow-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 w-full sm:w-64 transition-all placeholder:text-slate-400"
+                />
+                <button
+                  onClick={handleStartSession}
+                  disabled={isInitializing}
+                  className="group flex items-center justify-center gap-2.5 rounded-2xl px-6 py-3.5 text-sm font-extrabold text-white shadow-lg transition-all active:scale-95 bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/30 disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  <Play className="h-5 w-5" />
+                  <span>{isInitializing ? 'INITIALIZING...' : 'INITIALIZE SCANNER'}</span>
+                </button>
+              </div>
+            )}
 
           {activeSession && activeSession.status === 'active' && (
             <>
@@ -308,7 +355,7 @@ const RealTimeAttendance = () => {
               activeSession.status === 'active' ? 'bg-emerald-100 text-emerald-700 animate-pulse' : 'bg-blue-100 text-blue-700'
             }`}>
               {!activeSession ? 'OFFLINE' : 
-               activeSession.status === 'active' ? `LIVE: ${activeSession.sessionId}` : 'FINALIZED'}
+               activeSession.status === 'active' ? `LIVE: ${activeSession.sessionName || activeSession.sessionId}` : 'FINALIZED'}
             </span>
           </div>
 
@@ -385,12 +432,12 @@ const RealTimeAttendance = () => {
             {debugMode && (
               <div className="absolute top-5 right-5 z-40 bg-black/80 text-emerald-400 font-mono text-[10px] p-4 rounded-xl border border-emerald-500/30 flex flex-col gap-1.5 w-64 shadow-2xl backdrop-blur-md pointer-events-none">
                 <div className="border-b border-emerald-500/30 pb-2 mb-2 font-black text-white tracking-widest uppercase text-[9px]">Live Diagnostics</div>
-                <div className="flex justify-between"><span>Model State:</span> <span className="text-white">{debugInfo.faceDetectorLoaded}</span></div>
+                <div className="flex justify-between"><span>AI Engine:</span> <span className="text-white">{debugInfo.faceDetectorLoaded}</span></div>
                 <div className="flex justify-between"><span>Camera Link:</span> <span className="text-white">{scanning ? 'ACTIVE' : 'IDLE'}</span></div>
                 <div className="flex justify-between"><span>Buffer Rate:</span> <span className="text-white">{scanning ? '1 FPS' : '0 FPS'}</span></div>
                 <div className="flex justify-between"><span>Faces Found:</span> <span className="text-white">{debugInfo.facesFound}</span></div>
                 <div className="flex justify-between"><span>Recognized:</span> <span className="text-white">{detectedStudent && detectedStudent.name !== 'Unknown' ? 'YES' : 'NO'}</span></div>
-                <div className="flex justify-between truncate" title={debugInfo.backendResponse}><span>Socket:</span> <span className="text-white">{debugInfo.backendResponse === '200 OK' ? 'CONNECTED' : 'WAITING'}</span></div>
+                <div className="flex justify-between truncate" title={debugInfo.backendResponse}><span>REST API:</span> <span className="text-white">{debugInfo.backendResponse === '200 OK' ? 'CONNECTED' : 'WAITING'}</span></div>
                 <div className="flex justify-between"><span>DB Link:</span> <span className="text-white">SECURE</span></div>
                 <div className="flex justify-between border-t border-emerald-500/30 pt-1.5 mt-1.5"><span>Entities Logged:</span> <span className="text-white font-bold">{attendanceList.length}</span></div>
               </div>

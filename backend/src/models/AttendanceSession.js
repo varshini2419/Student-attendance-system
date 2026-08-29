@@ -7,6 +7,10 @@ const attendanceSessionSchema = new mongoose.Schema(
       required: true,
       unique: true
     },
+    sessionName: {
+      type: String,
+      default: 'Unnamed Session'
+    },
     date: {
       type: String, // Format: YYYY-MM-DD
       required: true

@@ -752,31 +752,32 @@ exports.getDashboardStats = async (req, res) => {
 // @access  Private
 exports.startSession = async (req, res) => {
   try {
-    const todayStr =
-      getLocalDateString();
+    const { sessionName } = req.body;
 
-    const todaySessions =
-      await AttendanceSession.countDocuments({
-        date: todayStr
+    if (!sessionName || !sessionName.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Session name is required'
       });
+    }
 
-    const sessionId =
-      `SESSION_${todayStr.replace(
-        /-/g,
-        ''
-      )}_${todaySessions + 1}`;
+    const todayStr = getLocalDateString();
+    
+    // Generate a secure unique sessionId to eliminate E11000 race conditions
+    const crypto = require('crypto');
+    const randomHex = crypto.randomBytes(2).toString('hex').toUpperCase();
+    const timestamp = Date.now().toString().slice(-6); // last 6 digits of timestamp
+    const sessionId = `SESSION_${todayStr.replace(/-/g, '')}_${timestamp}_${randomHex}`;
 
-    const newSession =
-      await AttendanceSession.create({
-        sessionId,
-        date: todayStr,
-        status: 'active',
-        markedBy: req.user._id
-      });
+    const newSession = await AttendanceSession.create({
+      sessionId,
+      sessionName: sessionName.trim(),
+      date: todayStr,
+      status: 'active',
+      markedBy: req.user._id
+    });
 
-    console.log(
-      `[SESSION STARTED] ${sessionId}`
-    );
+    console.log(`[SESSION STARTED] ${sessionId} - ${sessionName.trim()}`);
 
     res.status(201).json({
       success: true,
