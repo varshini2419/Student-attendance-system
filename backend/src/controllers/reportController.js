@@ -33,6 +33,9 @@ const queryAttendanceData = async (query) => {
     attendanceQuery.date = { $gte: startDate, $lte: endDate };
   }
 
+  // Filter to only include successfully marked present students
+  attendanceQuery.status = 'Present';
+
   return await Attendance.find(attendanceQuery)
     .populate('student', 'name rollNumber branch section email year category')
     .populate('markedBy', 'name email role')

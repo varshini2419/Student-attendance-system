@@ -611,6 +611,9 @@ exports.getAttendanceLogs = async (req, res) => {
       };
     }
 
+    // Filter to only include successfully marked present students
+    attendanceQuery.status = 'Present';
+
     const logs = await Attendance.find(
       attendanceQuery
     )
@@ -866,7 +869,8 @@ exports.stopSession = async (req, res) => {
 
     const records =
       await Attendance.find({
-        session: session._id
+        session: session._id,
+        status: 'Present'
       })
         .populate(
           'student',
@@ -1085,7 +1089,8 @@ exports.getSessionReport = async (
 
     const records =
       await Attendance.find({
-        session: session._id
+        session: session._id,
+        status: 'Present'
       })
         .populate(
           'student',
@@ -1129,7 +1134,8 @@ exports.downloadSessionExcel =
 
       const records =
         await Attendance.find({
-          session: session._id
+          session: session._id,
+          status: 'Present'
         })
           .populate(
             'student',
