@@ -1,5 +1,6 @@
 const Student = require('../models/Student');
 const Attendance = require('../models/Attendance');
+const { invalidateStudentCache } = require('./attendanceController');
 
 // @desc    Get all students (with optional search/filtering)
 // @route   GET /api/students
@@ -100,6 +101,8 @@ exports.createStudent = async (req, res) => {
       category
     });
 
+    invalidateStudentCache();
+
     res.status(201).json({
       success: true,
       data: student
@@ -163,6 +166,8 @@ exports.updateStudent = async (req, res) => {
 
     await student.save();
 
+    invalidateStudentCache();
+
     res.status(200).json({
       success: true,
       data: student
@@ -187,6 +192,8 @@ exports.deleteStudent = async (req, res) => {
 
     // Delete student
     await Student.findByIdAndDelete(req.params.id);
+
+    invalidateStudentCache();
 
     res.status(200).json({
       success: true,
@@ -269,6 +276,8 @@ exports.registerFaces = async (req, res) => {
     );
 
     console.log(`[FACE REGISTER] MongoDB updated successfully for student ${studentId}\\n`);
+
+    invalidateStudentCache();
 
     res.status(200).json({
       success: true,

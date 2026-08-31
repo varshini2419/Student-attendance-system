@@ -73,6 +73,17 @@ const MIN_FACE_HEIGHT = 60;
 const CONSECUTIVE_MATCHES_REQUIRED = 3; // Temporal smoothing
 const liveTemporalTracker = {}; // Keyed by session_studentId for real-time validation
 
+// P1: In-Memory Student Cache to prevent MongoDB bottleneck
+let studentEmbeddingsCache = null;
+let studentEmbeddingsCacheTime = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Optional helper to forcefully invalidate cache from other routes
+exports.invalidateStudentCache = () => {
+  studentEmbeddingsCache = null;
+  studentEmbeddingsCacheTime = 0;
+};
+
 // @desc    Mark attendance via Face Recognition
 // @route   POST /api/attendance/mark-face
 // @access  Private (Admin & Faculty)
@@ -340,20 +351,26 @@ exports.recognizeFace = async (req, res) => {
 
     const face = result.faces[0]; // REMOVED: Loop over all faces instead
 
-    const students = await Student.find(
-      {
-        embeddings: {
-          $exists: true,
-          $not: { $size: 0 }
+    // Phase 1: Load from Node.js memory cache instead of MongoDB
+    if (!studentEmbeddingsCache || (Date.now() - studentEmbeddingsCacheTime) > CACHE_TTL_MS) {
+      console.log('[CACHE MISS] Fetching student embeddings from MongoDB...');
+      studentEmbeddingsCache = await Student.find(
+        {
+          embeddings: {
+            $exists: true,
+            $not: { $size: 0 }
+          }
+        },
+        {
+          _id: 1,
+          name: 1,
+          rollNumber: 1,
+          embeddings: 1
         }
-      },
-      {
-        _id: 1,
-        name: 1,
-        rollNumber: 1,
-        embeddings: 1
-      }
-    );
+      ).lean();
+      studentEmbeddingsCacheTime = Date.now();
+    }
+    const students = studentEmbeddingsCache;
 
     const recognizedCandidates = [];
     const currentFrameMatches = new Set();

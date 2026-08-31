@@ -198,7 +198,7 @@ const RealTimeAttendance = () => {
   const scanFrame = useCallback(async () => {
     if (!isScanningRef.current) {
       if (scanning && activeSession && activeSession.status === 'active') {
-        loopTimeoutRef.current = setTimeout(scanFrame, 1000);
+        loopTimeoutRef.current = setTimeout(() => scanFrame(), 300);
       } else {
         setDetectedStudent(null);
       }
@@ -206,7 +206,7 @@ const RealTimeAttendance = () => {
     }
 
     if (!webcamRef.current) {
-      loopTimeoutRef.current = setTimeout(scanFrame, 1000);
+      loopTimeoutRef.current = setTimeout(() => scanFrame(), 300);
       return;
     }
 
@@ -302,7 +302,8 @@ const RealTimeAttendance = () => {
       setDebugInfo(prev => ({ ...prev, backendResponse: 'Failed' }));
     } finally {
       if (isScanningRef.current || (scanning && activeSession && activeSession.status === 'active')) {
-        loopTimeoutRef.current = setTimeout(scanFrame, 800);
+        // Phase 5: Reduce frontend idle timeout to execute fast sequential requests
+        loopTimeoutRef.current = setTimeout(() => scanFrame(), 300);
       } else {
         setDetectedStudent(null);
       }

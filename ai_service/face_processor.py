@@ -100,6 +100,11 @@ class FaceProcessor:
         if faces is not None:
             for face in faces:
                 bbox = [int(face[0]), int(face[1]), int(face[2]), int(face[3])]
+                
+                # Phase 2: Face size filtering to prevent expensive SFace on tiny background faces
+                if bbox[2] < 60 or bbox[3] < 60:
+                    continue
+                    
                 aligned_face = self.recognizer.alignCrop(bgr_img, face)
                 feature = self.recognizer.feature(aligned_face)
                 results.append({
