@@ -4,7 +4,7 @@ let aiServiceUrl = process.env.AI_SERVICE_URL || 'https://student-attendance-sys
 
 const aiClient = axios.create({
   baseURL: aiServiceUrl,
-  timeout: 15000, // 15 seconds timeout
+  timeout: 30000, // 30 seconds timeout to handle Render cold starts
 });
 
 // Helper to safely parse and translate Axios errors into readable messages

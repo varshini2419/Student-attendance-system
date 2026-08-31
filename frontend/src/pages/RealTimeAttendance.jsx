@@ -19,6 +19,10 @@ import {
 import API from '../utils/api';
 
 const RealTimeAttendance = () => {
+  // Optimization constants to drastically reduce network payload and AI CPU load
+  const RECOGNITION_CAPTURE_WIDTH = 480;
+  const RECOGNITION_CAPTURE_HEIGHT = 360;
+
   const webcamRef = useRef(null);
   
   const [activeSession, setActiveSession] = useState(null);
@@ -26,6 +30,7 @@ const RealTimeAttendance = () => {
   const [isConfirming, setIsConfirming] = useState(false);
   const [sessionName, setSessionName] = useState('');
   const [isInitializing, setIsInitializing] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [attendanceList, setAttendanceList] = useState([]);
   const [detectedStudent, setDetectedStudent] = useState(null);
   const [pendingAction, setPendingAction] = useState(null);
@@ -83,7 +88,10 @@ const RealTimeAttendance = () => {
 
   // Handle Stop Session
   const handleStopSession = async () => {
+    if (isStopping) return;
+    
     try {
+      setIsStopping(true);
       setScanning(false);
       const res = await API.post('/attendance/session/stop', { sessionId: activeSession._id });
       if (res.data.success) {
@@ -98,6 +106,8 @@ const RealTimeAttendance = () => {
     } catch (err) {
       console.error('Error stopping session:', err);
       alert('Failed to stop session');
+    } finally {
+      setIsStopping(false);
     }
   };
 
@@ -201,7 +211,7 @@ const RealTimeAttendance = () => {
     }
 
     try {
-      const imageSrc = webcamRef.current.getScreenshot({ width: 640, height: 480 });
+      const imageSrc = webcamRef.current.getScreenshot({ width: RECOGNITION_CAPTURE_WIDTH, height: RECOGNITION_CAPTURE_HEIGHT });
       if (!imageSrc) {
         setDebugInfo(prev => ({ ...prev, frameCaptured: 'NO' }));
         return;
@@ -365,10 +375,11 @@ const RealTimeAttendance = () => {
             <>
               <button
                 onClick={handleStopSession}
-                className="group flex items-center justify-center gap-2.5 rounded-2xl px-6 py-3.5 text-sm font-extrabold text-white shadow-lg transition-all active:scale-95 bg-rose-500 hover:bg-rose-400 shadow-rose-500/30"
+                disabled={isStopping}
+                className={`group flex items-center justify-center gap-2.5 rounded-2xl px-6 py-3.5 text-sm font-extrabold text-white shadow-lg transition-all ${isStopping ? 'bg-rose-400 opacity-80 cursor-not-allowed' : 'active:scale-95 bg-rose-500 hover:bg-rose-400 shadow-rose-500/30'}`}
               >
-                <StopCircle className="h-5 w-5 animate-pulse" />
-                <span>TERMINATE SESSION</span>
+                <StopCircle className={`h-5 w-5 ${isStopping ? 'animate-spin' : 'animate-pulse'}`} />
+                <span>{isStopping ? 'TERMINATING...' : 'TERMINATE SESSION'}</span>
               </button>
               
               <button
