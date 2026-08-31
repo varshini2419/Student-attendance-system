@@ -10,7 +10,7 @@ const attendanceSchema = new mongoose.Schema(
     session: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'AttendanceSession',
-      required: true
+      required: false // Manual marking might not have a session
     },
     date: {
       type: String, // Format: YYYY-MM-DD
@@ -22,19 +22,37 @@ const attendanceSchema = new mongoose.Schema(
       default: 'Present'
     },
     detectedTime: {
-      type: String, // e.g. "10:05 AM"
+      type: String, // Legacy support
     },
     markedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
-    timestamp: {
+    // New fields for cycle
+    loginTime: {
       type: Date,
-      default: Date.now
+      required: false // Manual marking might not set this
     },
-    screenshotUrl: {
+    logoutTime: {
+      type: Date,
+      default: null
+    },
+    durationMinutes: {
+      type: Number,
+      default: null
+    },
+    cycleStatus: {
       type: String,
-      required: false
+      enum: ['OPEN', 'COMPLETED'],
+      default: 'OPEN'
+    },
+    loginScreenshot: {
+      type: String,
+      default: null
+    },
+    logoutScreenshot: {
+      type: String,
+      default: null
     }
   },
   {
@@ -42,7 +60,8 @@ const attendanceSchema = new mongoose.Schema(
   }
 );
 
-// Composite unique index to prevent duplicate attendance entries for a student in the same session
-attendanceSchema.index({ student: 1, session: 1 }, { unique: true });
+// We explicitly DO NOT want a unique index on student+session to allow multiple cycles.
+// We can index on them for fast queries.
+attendanceSchema.index({ student: 1, session: 1 });
 
 module.exports = mongoose.model('Attendance', attendanceSchema);

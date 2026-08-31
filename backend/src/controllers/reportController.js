@@ -33,13 +33,12 @@ const queryAttendanceData = async (query) => {
     attendanceQuery.date = { $gte: startDate, $lte: endDate };
   }
 
-  // Filter to only include successfully marked present students
-  attendanceQuery.status = 'Present';
+  // No status filter so we include both Present and Absent records
 
   return await Attendance.find(attendanceQuery)
     .populate('student', 'name rollNumber branch section email year category')
     .populate('markedBy', 'name email role')
-    .sort({ date: -1, timestamp: -1 });
+    .sort({ date: -1, createdAt: -1 });
 };
 
 // @desc    Download Excel attendance report
@@ -147,9 +146,9 @@ exports.downloadExcelReport = async (req, res) => {
         section: log.student.section,
         date: log.date,
         status: log.status,
-        markedAt: new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        markedAt: new Date(log.loginTime || log.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
         markedBy: log.markedBy ? `${log.markedBy.name} (${log.markedBy.role})` : 'System',
-        screenshotUrl: log.screenshotUrl || 'N/A'
+        screenshotUrl: log.loginScreenshot || log.screenshotUrl || 'N/A'
       });
 
       // Style Status cell
@@ -347,8 +346,9 @@ exports.downloadPdfReport = async (req, res) => {
       }
       doc.text(log.status, 440, y + 5, { width: 45, align: 'center' });
       
-      doc.fillColor('#374151').font('Helvetica');
-      doc.text(new Date(log.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }), 490, y + 5, { width: 70, align: 'center' });
+      doc.fillColor('#374151').font('Helvetica');      
+      const timeStr = new Date(log.loginTime || log.createdAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+      doc.text(timeStr, 490, y + 5, { width: 70, align: 'center' });
 
       // Draw bottom line border
       doc.strokeColor('#E5E7EB').lineWidth(0.5).moveTo(30, y + 18).lineTo(565, y + 18).stroke();

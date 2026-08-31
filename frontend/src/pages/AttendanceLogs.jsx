@@ -352,7 +352,7 @@ const AttendanceLogs = () => {
                         <div className="flex flex-col">
                           <span className="font-bold text-slate-800">{log.date}</span>
                           <span className="text-xs font-medium text-slate-500">
-                            {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            {new Date(log.loginTime || log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                           </span>
                           <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">
                             By: {log.markedBy?.name ? `${log.markedBy.name}` : 'AI Sensor'}

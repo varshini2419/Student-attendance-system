@@ -10,7 +10,8 @@ import {
   LogOut,
   X,
   GraduationCap,
-  Fingerprint
+  Fingerprint,
+  Activity
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, onClose }) => {
@@ -21,6 +22,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     { name: 'Students', path: '/students', icon: Users, allowedRoles: ['admin', 'faculty'] },
     { name: 'Face Registration', path: '/face-registration', icon: Fingerprint, allowedRoles: ['admin', 'faculty'] },
     { name: 'Real-Time Scanner', path: '/realtime-attendance', icon: ScanFace, allowedRoles: ['admin', 'faculty'] },
+    { name: 'Live Monitoring', path: '/monitoring', icon: Activity, allowedRoles: ['admin', 'faculty'] },
     { name: 'Attendance History', path: '/logs', icon: ClipboardList, allowedRoles: ['admin', 'faculty'] }
   ];
 

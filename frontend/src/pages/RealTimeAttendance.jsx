@@ -13,7 +13,8 @@ import {
   Download,
   Trash2,
   ScanFace,
-  RotateCcw
+  RotateCcw,
+  Clock
 } from 'lucide-react';
 import API from '../utils/api';
 
@@ -22,10 +23,14 @@ const RealTimeAttendance = () => {
   
   const [activeSession, setActiveSession] = useState(null);
   const [scanning, setScanning] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
   const [sessionName, setSessionName] = useState('');
   const [isInitializing, setIsInitializing] = useState(false);
   const [attendanceList, setAttendanceList] = useState([]);
   const [detectedStudent, setDetectedStudent] = useState(null);
+  const [pendingAction, setPendingAction] = useState(null);
+  const pendingActionTimeoutRef = useRef(null);
+  const cooldownsRef = useRef({});
   const [speechEnabled, setSpeechEnabled] = useState(true);
   const [cameraError, setCameraError] = useState(null);
 
@@ -99,32 +104,17 @@ const RealTimeAttendance = () => {
   // Handle Download Excel
   const handleDownloadExcel = async () => {
     try {
-      if (activeSession && activeSession.excelUrl) {
-         // Create the absolute URL for the static report
-         const baseUrl = API.defaults.baseURL.replace(/\/api\/?$/, '');
-         const downloadUrl = `${baseUrl}${activeSession.excelUrl}`;
-         
-         const link = document.createElement('a');
-         link.href = downloadUrl;
-         link.target = '_blank';
-         link.setAttribute('download', `${activeSession.sessionId}_Attendance.xlsx`);
-         document.body.appendChild(link);
-         link.click();
-         link.remove();
-      } else {
-        // Fallback
-        const res = await API.get(`/attendance/session/${activeSession._id}/excel`, { responseType: 'blob' });
-        const url = window.URL.createObjectURL(new Blob([res.data]));
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', `${activeSession.sessionId}_Report.xlsx`);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }
+      const res = await API.get(`/attendance/session/${activeSession._id}/excel`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${activeSession.sessionId}_Report.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     } catch (err) {
       console.error('Error downloading excel:', err);
-      alert('Failed to download excel');
+      alert('Failed to download Excel report');
     }
   };
 
@@ -146,10 +136,52 @@ const RealTimeAttendance = () => {
     }
   };
 
+  const handleConfirmAction = async (actionType) => {
+    if (!pendingAction || isConfirming) return;
+    
+    try {
+      setIsConfirming(true);
+      const student = pendingAction.student;
+      const response = await API.post('/attendance/activity-confirm', {
+        studentId: student.id,
+        sessionId: activeSession._id,
+        action: actionType,
+        image: pendingAction.image
+      });
+      
+      if (response.data.success) {
+        setAttendanceList(prev => {
+          const timeStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+          return [{ name: student.name, id: student.id, type: actionType, time: timeStr }, ...prev];
+        });
+        
+        if (actionType === 'LOGIN') {
+          if (speakText) speakText(`Login recorded for ${student.name}`);
+        } else {
+          if (speakText) speakText(`Logout recorded for ${student.name}`);
+        }
+      }
+    } catch (err) {
+      console.error('Action confirmation failed', err);
+    } finally {
+      setIsConfirming(false);
+      cooldownsRef.current[pendingAction.student.id] = Date.now();
+      setPendingAction(null);
+      if (pendingActionTimeoutRef.current) {
+        clearTimeout(pendingActionTimeoutRef.current);
+        pendingActionTimeoutRef.current = null;
+      }
+    }
+  };
+
   const isScanningRef = useRef(false);
   const loopTimeoutRef = useRef(null);
+  const isRequestPendingRef = useRef(false);
+  const activeSessionRef = useRef(null);
+  const recognitionHoldRef = useRef({ studentId: null, timestamp: 0 });
 
   useEffect(() => {
+    activeSessionRef.current = activeSession;
     isScanningRef.current = scanning && activeSession && activeSession.status === 'active';
   }, [scanning, activeSession]);
 
@@ -197,34 +229,62 @@ const RealTimeAttendance = () => {
       }));
 
       if (!result.faceDetected) {
+        if (Date.now() - recognitionHoldRef.current.timestamp < 3000) {
+          console.log("[STABILITY] Holding previous identity (no face)");
+          return;
+        }
+        console.log("[STABILITY] Identity cleared");
         setDetectedStudent(null);
         return;
       }
 
       if (result.matched) {
+        if (recognitionHoldRef.current.studentId !== result.studentId) {
+          console.log("[STABILITY] Identity locked: " + result.name);
+        }
+        recognitionHoldRef.current = { studentId: result.studentId, timestamp: Date.now() };
+
         setDetectedStudent({
           name: result.name,
           id: result.studentId,
           confidence: Math.round(result.confidence * 100)
         });
 
-        // Add to attendance list if marked successfully
-        if (result.message === 'Attendance marked successfully') {
-          setAttendanceList(prev => {
-            const exists = prev.find(s => s.id === result.studentId);
-            if (exists) return prev;
+        const lastPopupTime = cooldownsRef.current[result.studentId];
+        const inCooldown = lastPopupTime && (Date.now() - lastPopupTime < 5000);
+
+        setPendingAction(prevPending => {
+          if (!inCooldown && !prevPending && result.action && result.action !== 'IGNORE') {
+            const nextAction = {
+              type: result.action,
+              student: { name: result.name, id: result.studentId },
+              image: imageSrc
+            };
             
-            speakText(`Welcome, ${result.name}`);
-            return [{ name: result.name, id: result.studentId }, ...prev];
-          });
-        }
+            if (result.action === 'LOGOUT_AVAILABLE') {
+              if (pendingActionTimeoutRef.current) clearTimeout(pendingActionTimeoutRef.current);
+              pendingActionTimeoutRef.current = setTimeout(() => {
+                cooldownsRef.current[result.studentId] = Date.now();
+                setPendingAction(null);
+              }, 5000);
+            }
+            return nextAction;
+          }
+          return prevPending;
+        });
       } else {
-         setDetectedStudent({
-            name: "Unknown",
-            id: "-",
-            confidence: result.confidence ? Math.round(result.confidence * 100) : 0,
-            message: result.message
-         });
+        if (Date.now() - recognitionHoldRef.current.timestamp < 3000) {
+          console.log("[STABILITY] Holding previous identity (ignoring unknown)");
+          return;
+        }
+        console.log("[STABILITY] Identity cleared (unknown face)");
+        setDetectedStudent({
+          name: "Unknown",
+          id: "-",
+          confidence: result.confidence ? Math.round(result.confidence * 100) : 0,
+          message: result.message,
+          isCooldown: false
+        });
       }
 
     } catch (err) {
@@ -443,6 +503,40 @@ const RealTimeAttendance = () => {
               </div>
             )}
 
+            {/* Action Popup UI */}
+            {pendingAction && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm rounded-3xl animate-in fade-in zoom-in-95 duration-200">
+                <div className="bg-white p-6 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm w-full mx-4 border border-slate-100 text-center">
+                  <div className="h-16 w-16 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center mb-4">
+                    <ScanFace className="h-8 w-8" />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900 mb-1">{pendingAction.student.name}</h3>
+                  <p className="text-sm font-medium text-slate-500 mb-6">
+                    {pendingAction.type === 'LOGIN_AVAILABLE' ? 'Ready to log in?' : 'Do you want to log out?'}
+                  </p>
+                  <div className="flex gap-3 w-full">
+                    <button 
+                      onClick={() => {
+                        cooldownsRef.current[pendingAction.student.id] = Date.now();
+                        setPendingAction(null);
+                        if (pendingActionTimeoutRef.current) clearTimeout(pendingActionTimeoutRef.current);
+                      }}
+                      className="flex-1 py-3 px-4 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={() => handleConfirmAction(pendingAction.type === 'LOGIN_AVAILABLE' ? 'LOGIN' : 'LOGOUT')}
+                      disabled={isConfirming}
+                      className={`flex-1 py-3 px-4 rounded-xl font-bold text-white transition-all active:scale-95 ${isConfirming ? 'opacity-50 cursor-not-allowed' : ''} ${pendingAction.type === 'LOGIN_AVAILABLE' ? 'bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/30 shadow-lg' : 'bg-rose-500 hover:bg-rose-400 shadow-rose-500/30 shadow-lg'}`}
+                    >
+                      {pendingAction.type === 'LOGIN_AVAILABLE' ? 'LOGIN' : 'LOG OUT'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Warning if scanning but no face detected */}
             {scanning && !cameraError && debugInfo.facesFound === 0 && (
               <div className="absolute top-5 left-5 z-40 bg-rose-500/90 backdrop-blur text-white font-bold text-[10px] uppercase tracking-widest px-4 py-2.5 rounded-lg shadow-xl animate-pulse border border-rose-400/50 flex items-center gap-2">
@@ -477,6 +571,11 @@ const RealTimeAttendance = () => {
                   {detectedStudent.message && detectedStudent.name === 'Unknown' && (
                     <span className="block text-xs font-bold text-rose-500 mt-2 whitespace-normal">
                       {detectedStudent.message}
+                    </span>
+                  )}
+                  {detectedStudent.isCooldown && (
+                    <span className="block text-xs font-bold text-amber-500 mt-2 whitespace-normal flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> Cooldown Active
                     </span>
                   )}
                 </div>
@@ -516,16 +615,28 @@ const RealTimeAttendance = () => {
                 </div>
               ) : (
                 attendanceList.map((student, idx) => (
-                  <div key={`${student.id}-${idx}`} className="flex items-center justify-between p-3.5 bg-emerald-50 text-emerald-900 rounded-xl border border-emerald-100 shadow-sm animate-fade-in-up">
+                  <div key={`${student.id}-${idx}`} className={`flex items-center justify-between p-3.5 rounded-xl border shadow-sm animate-fade-in-up ${student.type === 'LOGOUT' ? 'bg-rose-50 text-rose-900 border-rose-100' : 'bg-emerald-50 text-emerald-900 border-emerald-100'}`}>
                     <div className="flex items-center gap-3 truncate">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-200/50 text-emerald-700 font-bold text-xs">
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-bold text-xs ${student.type === 'LOGOUT' ? 'bg-rose-200/50 text-rose-700' : 'bg-emerald-200/50 text-emerald-700'}`}>
                         {student.name[0]}
                       </div>
-                      <span className="font-extrabold text-sm truncate">{student.name}</span>
+                      <div className="flex flex-col">
+                        <span className="font-extrabold text-sm truncate">{student.name}</span>
+                        <span className="text-[10px] font-bold text-slate-500">{student.time || new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5 bg-white px-2 py-1 rounded-md shadow-sm border border-emerald-50 shrink-0">
-                      <CheckCircle className="h-3 w-3 text-emerald-500" />
-                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Logged</span>
+                    <div className={`flex items-center gap-1.5 bg-white px-2 py-1 rounded-md shadow-sm border shrink-0 ${student.type === 'LOGOUT' ? 'border-rose-50' : 'border-emerald-50'}`}>
+                      {student.type === 'LOGOUT' ? (
+                        <>
+                          <div className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+                          <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider">LOGOUT</span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">LOGIN</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))

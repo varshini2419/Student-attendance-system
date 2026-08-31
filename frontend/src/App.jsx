@@ -11,6 +11,7 @@ import FaceRegistration from './pages/FaceRegistration';
 import FaceTestingModule from './pages/FaceTestingModule';
 import RealTimeAttendance from './pages/RealTimeAttendance';
 import AttendanceLogs from './pages/AttendanceLogs';
+import LiveMonitoring from './pages/LiveMonitoring';
 import Reports from './pages/Reports';
 
 // Layout wrapper for authenticated pages
@@ -52,6 +53,7 @@ function App() {
             <Route path="/face-registration" element={<FaceRegistration />} />
             <Route path="/realtime-attendance" element={<RealTimeAttendance />} />
             <Route path="/face-testing" element={<FaceTestingModule />} />
+            <Route path="/monitoring" element={<LiveMonitoring />} />
             <Route path="/logs" element={<AttendanceLogs />} />
             <Route path="/reports" element={<Reports />} />
           </Route>

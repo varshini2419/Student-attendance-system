@@ -65,6 +65,14 @@ exports.markAttendance = async (req, res) => {
 // Temporal session tracker to require 3 consecutive frames
 const temporalTracker = {};
 
+// Recognition Accuracy Configuration
+const FACE_MATCH_THRESHOLD = 0.35; // Lowered from 0.64 to block 13% FAR
+const MIN_RECOGNITION_MARGIN = 0.05; // Requires best match to be clearly better than 2nd best
+const MIN_FACE_WIDTH = 60; // Reject distant tiny faces
+const MIN_FACE_HEIGHT = 60;
+const CONSECUTIVE_MATCHES_REQUIRED = 3; // Temporal smoothing
+const liveTemporalTracker = {}; // Keyed by session_studentId for real-time validation
+
 // @desc    Mark attendance via Face Recognition
 // @route   POST /api/attendance/mark-face
 // @access  Private (Admin & Faculty)
@@ -330,18 +338,7 @@ exports.recognizeFace = async (req, res) => {
 
     console.log('[FACE DETECTED]');
 
-    const face = result.faces[0];
-
-    if (
-      !face.embedding ||
-      face.embedding.length !== 128
-    ) {
-      return res.status(200).json({
-        faceDetected: true,
-        matched: false,
-        message: 'Invalid face embedding'
-      });
-    }
+    const face = result.faces[0]; // REMOVED: Loop over all faces instead
 
     const students = await Student.find(
       {
@@ -358,56 +355,115 @@ exports.recognizeFace = async (req, res) => {
       }
     );
 
-    let bestMatch = null;
-    let bestDistance = 0.64;
-    let closestObserved = 1.0;
+    const recognizedCandidates = [];
+    const currentFrameMatches = new Set();
+    const sessionPrefix = session._id.toString() + '_';
+    const now = Date.now();
 
-    for (const student of students) {
-      if (
-        !student.embeddings ||
-        student.embeddings.length === 0
-      ) {
-        continue;
-      }
+    console.log(`[FACE SCAN] Found ${result.faces.length} faces in frame.`);
 
-      for (const refEmbedding of student.embeddings) {
-        const dist = cosineDistance(
-          face.embedding,
-          refEmbedding
-        );
-
-        if (dist < closestObserved) {
-          closestObserved = dist;
+    for (let i = 0; i < result.faces.length; i++) {
+        const currentFace = result.faces[i];
+        
+        // 1. Size Validation (bbox = [x, y, w, h])
+        if (currentFace.bbox && (currentFace.bbox[2] < MIN_FACE_WIDTH || currentFace.bbox[3] < MIN_FACE_HEIGHT)) {
+            console.log(`[FACE REJECTED] Face #${i} too small: ${currentFace.bbox[2]}x${currentFace.bbox[3]}`);
+            continue;
         }
-
-        if (dist < bestDistance) {
-          bestDistance = dist;
-          bestMatch = student;
+        
+        if (!currentFace.embedding || currentFace.embedding.length !== 128) {
+            console.log(`[FACE REJECTED] Face #${i} has invalid embedding`);
+            continue;
         }
-      }
+        
+        // 2. Candidate Comparison
+        let candidateMatch = null;
+        let candidateBestDistance = 1.0;
+        let candidateSecondBestDistance = 1.0;
+        let closestObserved = 1.0;
+
+        for (const student of students) {
+            if (!student.embeddings || student.embeddings.length === 0) continue;
+            
+            let minDistanceForThisStudent = 1.0;
+            for (const refEmbedding of student.embeddings) {
+                const dist = cosineDistance(currentFace.embedding, refEmbedding);
+                if (dist < minDistanceForThisStudent) {
+                    minDistanceForThisStudent = dist;
+                }
+            }
+            
+            if (minDistanceForThisStudent < closestObserved) closestObserved = minDistanceForThisStudent;
+
+            if (minDistanceForThisStudent < candidateBestDistance) {
+                candidateSecondBestDistance = candidateBestDistance;
+                candidateBestDistance = minDistanceForThisStudent;
+                candidateMatch = student;
+            } else if (minDistanceForThisStudent < candidateSecondBestDistance) {
+                candidateSecondBestDistance = minDistanceForThisStudent;
+            }
+        }
+        
+        // 3. Threshold Check & Ambiguity Check
+        if (candidateMatch && candidateBestDistance <= FACE_MATCH_THRESHOLD) {
+            const margin = candidateSecondBestDistance - candidateBestDistance;
+            if (margin >= MIN_RECOGNITION_MARGIN) {
+                 recognizedCandidates.push({ student: candidateMatch, distance: candidateBestDistance, margin });
+                 currentFrameMatches.add(candidateMatch._id.toString());
+                 console.log(`[FACE MATCHED] Face #${i} -> ${candidateMatch.name} (Dist: ${candidateBestDistance.toFixed(3)}, Margin: ${margin.toFixed(3)})`);
+            } else {
+                 console.log(`[FACE REJECTED] Ambiguous match for Face #${i} (${candidateMatch.name}). Margin: ${margin.toFixed(3)} < ${MIN_RECOGNITION_MARGIN}`);
+            }
+        } else {
+             const bestName = candidateMatch ? candidateMatch.name : 'Unknown';
+             console.log(`[FACE REJECTED] Face #${i} closest to ${bestName} (Dist: ${candidateBestDistance.toFixed(3)} > ${FACE_MATCH_THRESHOLD})`);
+        }
     }
-
-    console.log(
-      `[FACE MATCHING] Closest distance found: ${closestObserved.toFixed(
-        3
-      )}`
-    );
-
-    if (!bestMatch) {
+    
+    // 4. Temporal Tracking to prevent cross-user contamination and single-frame false positives
+    for (const key of Object.keys(liveTemporalTracker)) {
+       if (key.startsWith(sessionPrefix)) {
+           const studentIdStr = key.replace(sessionPrefix, '');
+           if (!currentFrameMatches.has(studentIdStr)) {
+               delete liveTemporalTracker[key]; // Reset if they disappeared in this frame
+           }
+       }
+    }
+    
+    let finalConfirmedCandidate = null;
+    
+    for (const candidate of recognizedCandidates) {
+        const key = sessionPrefix + candidate.student._id.toString();
+        if (!liveTemporalTracker[key]) {
+            liveTemporalTracker[key] = { count: 1, lastSeen: now };
+        } else {
+            liveTemporalTracker[key].count += 1;
+            liveTemporalTracker[key].lastSeen = now;
+        }
+        
+        console.log(`[TEMPORAL] ${candidate.student.name}: ${liveTemporalTracker[key].count}/${CONSECUTIVE_MATCHES_REQUIRED} consecutive frames`);
+        
+        if (liveTemporalTracker[key].count >= CONSECUTIVE_MATCHES_REQUIRED) {
+            if (!finalConfirmedCandidate || candidate.distance < finalConfirmedCandidate.distance) {
+                finalConfirmedCandidate = candidate;
+            }
+        }
+    }
+    
+    if (!finalConfirmedCandidate) {
       return res.status(200).json({
         faceDetected: true,
         matched: false,
-        message: `Face not matched (Closest: ${closestObserved.toFixed(
-          3
-        )})`
+        message: recognizedCandidates.length > 0 
+            ? 'Validating match (need more frames)' 
+            : 'No confident match found'
       });
     }
 
-    console.log(
-      `[STUDENT MATCHED] Found ${bestMatch.name} with distance ${bestDistance.toFixed(
-        3
-      )}`
-    );
+    const bestMatch = finalConfirmedCandidate.student;
+    const bestDistance = finalConfirmedCandidate.distance;
+    
+    console.log(`[STUDENT CONFIRMED] ${bestMatch.name} with distance ${bestDistance.toFixed(3)}`);
 
     const todayStr = getLocalDateString();
 
@@ -416,121 +472,70 @@ exports.recognizeFace = async (req, res) => {
       session: session._id
     });
 
-    // Convert distance to confidence
-    const confidence = Math.max(
-      0,
-      1 - bestDistance / 0.64
-    );
-
-    // FACE MATCH THRESHOLD: 50%
-    const MATCH_THRESHOLD =
-      parseFloat(process.env.MATCH_THRESHOLD) || 0.50;
-
-    if (confidence < MATCH_THRESHOLD) {
-      const thresholdPercent = Math.round(
-        MATCH_THRESHOLD * 100
-      );
-
-      return res.status(200).json({
-        faceDetected: true,
-        matched: false,
-        confidence,
-        message: `Face match is below ${thresholdPercent}%. Please align your face and try again.`
-      });
+    let confidence = 0;
+    if (bestDistance <= FACE_MATCH_THRESHOLD) {
+      const rawScore = Math.max(0, 1 - bestDistance / FACE_MATCH_THRESHOLD);
+      confidence = 0.75 + (rawScore * 0.25);
     }
 
-    if (
-      existingRecord &&
-      existingRecord.status === 'Present'
-    ) {
+    let student = bestMatch._id;
+
+    // Phase 2/5: ActivityState Check with Configurable Cooldown
+    const ActivityState = require('../models/ActivityState');
+    let state = await ActivityState.findOne({ student, session: session._id });
+    
+    if (!state) {
       return res.status(200).json({
         faceDetected: true,
+        success: true,
         matched: true,
-        studentId: bestMatch._id,
         name: bestMatch.name,
-        confidence,
-        message: 'Already marked present today'
+        studentId: student,
+        confidence: Number(confidence.toFixed(4)),
+        action: 'LOGIN_AVAILABLE',
+        message: 'Ready for login'
       });
     }
 
-    const attendanceRecord = await Attendance.create({
-      student: bestMatch._id,
-      session: session._id,
-      date: todayStr,
-      status: 'Present',
-      detectedTime: new Date().toLocaleTimeString(
-        'en-IN',
-        {
-          timeZone: 'Asia/Kolkata',
-          hour: '2-digit',
-          minute: '2-digit'
-        }
-      ),
-      markedBy: req.user._id
-    });
-
-    console.log(
-      `[MARKED PRESENT] ${bestMatch.name}`
-    );
-
-    // Screenshot saving logic
-    try {
-      const fs = require('fs');
-      const path = require('path');
-
-      const screenshotsDir = path.join(
-        __dirname,
-        '../../public/screenshots'
-      );
-
-      if (!fs.existsSync(screenshotsDir)) {
-        fs.mkdirSync(screenshotsDir, {
-          recursive: true
+    if (state.currentState === 'IN') {
+      const minsSinceLogin = (Date.now() - new Date(state.lastLoginTime).getTime()) / 60000;
+      const cooldownTarget = parseInt(process.env.LOGOUT_COOLDOWN_MINUTES) || 5;
+      
+      if (minsSinceLogin < cooldownTarget) {
+        return res.status(200).json({
+          faceDetected: true,
+          success: true,
+          matched: true,
+          name: bestMatch.name,
+          studentId: student,
+          confidence: Number(confidence.toFixed(4)),
+          action: 'IGNORE',
+          message: 'Inside cooldown window'
+        });
+      } else {
+        return res.status(200).json({
+          faceDetected: true,
+          success: true,
+          matched: true,
+          name: bestMatch.name,
+          studentId: student,
+          confidence: Number(confidence.toFixed(4)),
+          action: 'LOGOUT_AVAILABLE',
+          message: 'Ready for logout'
         });
       }
-
-      const fileName =
-        `${bestMatch._id}_${session._id}_${attendanceRecord._id}.jpg`;
-
-      const filePath = path.join(
-        screenshotsDir,
-        fileName
-      );
-
-      const base64Data = image.replace(
-        /^data:image\/\w+;base64,/,
-        ''
-      );
-
-      await fs.promises.writeFile(
-        filePath,
-        base64Data,
-        'base64'
-      );
-
-      attendanceRecord.screenshotUrl =
-        `/screenshots/${fileName}`;
-
-      await attendanceRecord.save();
-
-      console.log(
-        `[SCREENSHOT SAVED] ${fileName}`
-      );
-    } catch (screenshotError) {
-      console.error(
-        '[SCREENSHOT ERROR]',
-        screenshotError
-      );
+    } else {
+      return res.status(200).json({
+        faceDetected: true,
+        success: true,
+        matched: true,
+        name: bestMatch.name,
+        studentId: student,
+        confidence: Number(confidence.toFixed(4)),
+        action: 'LOGIN_AVAILABLE',
+        message: 'Ready for login'
+      });
     }
-
-    return res.status(200).json({
-      faceDetected: true,
-      matched: true,
-      studentId: bestMatch._id,
-      name: bestMatch.name,
-      confidence,
-      message: 'Attendance marked successfully'
-    });
   } catch (error) {
     console.error(
       '[RECOGNIZE FACE ERROR]',
@@ -650,11 +655,12 @@ exports.getDashboardStats = async (req, res) => {
     const totalStudents =
       await Student.countDocuments({});
 
-    const presentToday =
-      await Attendance.countDocuments({
+    const presentTodayIds =
+      await Attendance.distinct('student', {
         date: todayStr,
         status: 'Present'
       });
+    const presentToday = presentTodayIds.length;
 
     const absentToday = Math.max(
       0,
@@ -689,11 +695,12 @@ exports.getDashboardStats = async (req, res) => {
       const dateStr =
         getLocalDateString(d);
 
-      const presentCount =
-        await Attendance.countDocuments({
+      const presentCountIds =
+        await Attendance.distinct('student', {
           date: dateStr,
           status: 'Present'
         });
+      const presentCount = presentCountIds.length;
 
       const dayLabel =
         d.toLocaleDateString(
@@ -819,6 +826,27 @@ exports.stopSession = async (req, res) => {
 
     await session.save();
 
+    // Close any open attendance cycles
+    const openCycles = await Attendance.find({ session: session._id, cycleStatus: 'OPEN' });
+    const ActivityState = require('../models/ActivityState');
+    
+    for (const cycle of openCycles) {
+      cycle.cycleStatus = 'COMPLETED';
+      cycle.logoutTime = session.endTime;
+      
+      const durationMs = cycle.logoutTime.getTime() - new Date(cycle.loginTime).getTime();
+      cycle.durationMinutes = Math.max(0, Math.round(durationMs / 60000));
+      await cycle.save();
+
+      // Update ActivityState
+      const state = await ActivityState.findOne({ student: cycle.student, session: session._id });
+      if (state) {
+         state.currentState = 'OUT';
+         state.totalDurationMinutes = (state.totalDurationMinutes || 0) + cycle.durationMinutes;
+         await state.save();
+      }
+    }
+
     const presentRecords =
       await Attendance.find({
         session: session._id,
@@ -857,208 +885,11 @@ exports.stopSession = async (req, res) => {
       `[SESSION STOPPED] Total Present: ${presentStudentIds.length}, Total Absent: ${absentDocs.length}`
     );
 
-    const ExcelJS =
-      require('exceljs');
-
-    const workbook =
-      new ExcelJS.Workbook();
-
-    const worksheet =
-      workbook.addWorksheet(
-        'Attendance Report'
-      );
-
-    const records =
-      await Attendance.find({
-        session: session._id,
-        status: 'Present'
-      })
-        .populate(
-          'student',
-          'name rollNumber branch year category'
-        )
-        .sort({
-          status: -1,
-          detectedTime: 1
-        });
-
-    worksheet.columns = [
-      {
-        header: 'Roll No',
-        key: 'rollNo',
-        width: 18
-      },
-      {
-        header: 'Student Name',
-        key: 'studentName',
-        width: 25
-      },
-      {
-        header: 'Branch',
-        key: 'branch',
-        width: 15
-      },
-      {
-        header: 'Year',
-        key: 'year',
-        width: 15
-      },
-      {
-        header: 'Category',
-        key: 'category',
-        width: 15
-      },
-      {
-        header: 'Status',
-        key: 'status',
-        width: 15
-      },
-      {
-        header: 'Detection Time',
-        key: 'detectionTime',
-        width: 18
-      },
-      {
-        header: 'Session ID',
-        key: 'sessionId',
-        width: 22
-      },
-      {
-        header: 'Screenshot Reference',
-        key: 'screenshot',
-        width: 25
-      }
-    ];
-
-    worksheet.getRow(1).font = {
-      bold: true
-    };
-
-    const fs = require('fs');
-    const path = require('path');
-
-    records.forEach((record) => {
-      const dataRow =
-        worksheet.addRow({
-          rollNo:
-            record.student
-              ? record.student.rollNumber
-              : 'Unknown',
-          studentName:
-            record.student
-              ? record.student.name
-              : 'Unknown',
-          branch:
-            record.student
-              ? record.student.branch || 'N/A'
-              : 'Unknown',
-          year:
-            record.student
-              ? record.student.year || 'N/A'
-              : 'Unknown',
-          category:
-            record.student
-              ? record.student.category || 'N/A'
-              : 'Unknown',
-          status: record.status,
-          detectionTime:
-            record.status === 'Present'
-              ? new Date(record.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
-              : '-',
-          sessionId: session.sessionId,
-          screenshot:
-            record.screenshotUrl ||
-            'N/A'
-        });
-
-      dataRow.height = 20;
-
-      if (record.screenshotUrl) {
-        try {
-          const filename =
-            record.screenshotUrl
-              .split('/')
-              .pop();
-
-          const imagePath =
-            path.join(
-              __dirname,
-              '../../public/screenshots',
-              filename
-            );
-
-          if (fs.existsSync(imagePath)) {
-            const imageId =
-              workbook.addImage({
-                filename: imagePath,
-                extension: 'jpeg'
-              });
-
-            worksheet.addImage(
-              imageId,
-              {
-                tl: {
-                  col: 8,
-                  row:
-                    dataRow.number - 1
-                },
-                ext: {
-                  width: 40,
-                  height: 40
-                }
-              }
-            );
-
-            dataRow.height = 45;
-            dataRow.getCell(9).value = '';
-          }
-        } catch (err) {
-          console.error(
-            'Failed to embed screenshot:',
-            err
-          );
-        }
-      }
-    });
-
-    const reportsDir =
-      path.join(
-        __dirname,
-        '../../public/reports'
-      );
-
-    if (!fs.existsSync(reportsDir)) {
-      fs.mkdirSync(reportsDir, {
-        recursive: true
-      });
-    }
-
-    const fileName =
-      `${session.sessionId}_Attendance.xlsx`;
-
-    const filePath =
-      path.join(
-        reportsDir,
-        fileName
-      );
-
-    await workbook.xlsx.writeFile(
-      filePath
-    );
-
-    console.log(
-      `[EXCEL GENERATED] ${filePath}`
-    );
-
     res.status(200).json({
       success: true,
       sessionId: session.sessionId,
-      presentCount:
-        presentStudentIds.length,
-      absentCount:
-        absentDocs.length,
-      excelUrl:
-        `/reports/${fileName}`
+      presentCount: presentStudentIds.length,
+      absentCount: absentDocs.length
     });
   } catch (error) {
     res.status(500).json({
@@ -1331,56 +1162,307 @@ exports.downloadSessionExcel =
     }
   };
 
-// @desc    Clear active session data
-// @route   DELETE /api/attendance/session/active
+// @desc    Download session Excel report
+// @route   GET /api/attendance/session/:id/excel
 // @access  Private
-exports.clearActiveSession =
-  async (req, res) => {
-    try {
-      const { sessionId } =
-        req.body;
+exports.downloadSessionExcel = async (req, res) => {
+  try {
+    const AttendanceSession = require('../models/AttendanceSession');
+    const session = await AttendanceSession.findById(req.params.id);
+    if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
 
-      if (!sessionId) {
-        return res.status(400).json({
-          success: false,
-          message:
-            'Session ID required'
-        });
-      }
+    const ActivityState = require('../models/ActivityState');
+    const Attendance = require('../models/Attendance');
+    const Student = require('../models/Student');
+    
+    const allStudents = await Student.find({}).select('name rollNumber branch year category');
+    const states = await ActivityState.find({ session: session._id });
+    const cycles = await Attendance.find({ session: session._id }).sort({ loginTime: 1 });
 
-      const session =
-        await AttendanceSession.findById(
-          sessionId
-        );
+    const studentCycles = {};
+    cycles.forEach(c => {
+      const sId = c.student.toString();
+      if (!studentCycles[sId]) studentCycles[sId] = [];
+      studentCycles[sId].push(c);
+    });
 
-      if (
-        !session ||
-        session.status !== 'active'
-      ) {
-        return res.status(400).json({
-          success: false,
-          message:
-            'Invalid or completed session cannot be cleared'
-        });
-      }
+    const studentStates = {};
+    states.forEach(s => {
+       studentStates[s.student.toString()] = s.totalDurationMinutes || 0;
+    });
 
-      await Attendance.deleteMany({
-        session: session._id
+    let maxIntervals = 1; // Minimum 1 for header consistency
+    const reportData = allStudents.map(student => {
+      const studentId = student._id.toString();
+      // Filter out the 'Absent' placeholder docs generated by stopSession so we don't count them as cycles
+      const stCycles = (studentCycles[studentId] || []).filter(c => c.status !== 'Absent');
+      const isAbsent = stCycles.length === 0;
+      
+      let loginCount = 0;
+      let logoutCount = 0;
+
+      stCycles.forEach(c => {
+        loginCount++;
+        if (c.cycleStatus === 'COMPLETED') {
+          logoutCount++;
+        }
       });
 
-      await AttendanceSession.findByIdAndDelete(
-        session._id
-      );
+      if (stCycles.length > maxIntervals) maxIntervals = stCycles.length;
 
-      res.status(200).json({
-        success: true,
-        message:
-          'Active session data cleared successfully'
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: error.message
-      });
+      return {
+        student: student,
+        status: isAbsent ? 'Absent' : 'Present',
+        totalLogins: loginCount,
+        totalLogouts: logoutCount,
+        totalDuration: Math.round(studentStates[studentId] || 0),
+        cycles: stCycles
+      };
+    }).filter(data => data.status === 'Present');
+
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Attendance Report');
+
+    const columns = [
+      { header: 'Roll No', key: 'rollNo', width: 18 },
+      { header: 'Student Name', key: 'studentName', width: 25 },
+      { header: 'Branch', key: 'branch', width: 15 },
+      { header: 'Year', key: 'year', width: 15 },
+      { header: 'Category', key: 'category', width: 15 },
+      { header: 'Status', key: 'status', width: 15 },
+      { header: 'Session ID', key: 'sessionId', width: 25 },
+      { header: 'Session Name', key: 'sessionName', width: 25 },
+      { header: 'Total Logins', key: 'totalLogins', width: 15 },
+      { header: 'Total Logouts', key: 'totalLogouts', width: 15 },
+      { header: 'Total Duration (Mins)', key: 'totalDuration', width: 22 }
+    ];
+
+    for (let i = 1; i <= maxIntervals; i++) {
+      columns.push({ header: 'Login ' + i, key: 'login_' + i, width: 20 });
+      columns.push({ header: 'Logout ' + i, key: 'logout_' + i, width: 20 });
     }
-  };
+
+    worksheet.columns = columns;
+    worksheet.getRow(1).font = { bold: true };
+
+    const isActive = session.status === 'active';
+
+    reportData.forEach(row => {
+      const rowData = {
+        rollNo: row.student.rollNumber,
+        studentName: row.student.name,
+        branch: row.student.branch,
+        year: row.student.year,
+        category: row.student.category,
+        status: row.status,
+        sessionId: session.sessionId,
+        sessionName: session.sessionName,
+        totalLogins: row.totalLogins,
+        totalLogouts: row.totalLogouts,
+        totalDuration: row.totalDuration
+      };
+
+      if (row.status === 'Absent') {
+         rowData['login_1'] = 'Not Yet';
+         rowData['logout_1'] = 'Not Yet';
+      } else {
+        row.cycles.forEach((c, idx) => {
+          const i = idx + 1;
+          rowData['login_' + i] = c.loginTime ? new Date(c.loginTime).toLocaleTimeString() : '';
+          
+          let logoutStr = '';
+          if (c.cycleStatus === 'COMPLETED') {
+            if (session.endTime && c.logoutTime && new Date(c.logoutTime).getTime() === new Date(session.endTime).getTime()) {
+              logoutStr = "Didn't Do Logout";
+            } else {
+              logoutStr = new Date(c.logoutTime).toLocaleTimeString();
+            }
+          } else {
+            logoutStr = isActive ? 'Not Yet' : "Didn't Do Logout";
+          }
+          rowData['logout_' + i] = logoutStr;
+        });
+      }
+
+      worksheet.addRow(rowData);
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=' + session.sessionId + '_Report.xlsx');
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.clearActiveSession = async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    if (!sessionId) return res.status(400).json({ success: false, message: 'Session ID required' });
+    const session = await require('../models/AttendanceSession').findById(sessionId);
+    if (!session || session.status !== 'active') return res.status(400).json({ success: false, message: 'Invalid or completed session cannot be cleared' });
+    await require('../models/Attendance').deleteMany({ session: session._id });
+    await require('../models/AttendanceSession').findByIdAndDelete(session._id);
+    res.status(200).json({ success: true, message: 'Active session data cleared successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.confirmActivity = async (req, res) => {
+  try {
+    const { studentId, sessionId, action, image } = req.body;
+    const AttendanceSession = require('../models/AttendanceSession');
+    const session = await AttendanceSession.findById(sessionId);
+    if (!session || session.status !== 'active') {
+      return res.status(400).json({ success: false, message: 'Invalid session' });
+    }
+
+    const ActivityState = require('../models/ActivityState');
+    const ActivityEvent = require('../models/ActivityEvent');
+    const Attendance = require('../models/Attendance');
+    const Student = require('../models/Student');
+    const fs = require('fs');
+    const path = require('path');
+
+    let state = await ActivityState.findOne({ student: studentId, session: sessionId });
+    
+    // Process image if provided
+    let screenshotUrl = null;
+    if (image) {
+      try {
+        const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+        const filename = `${studentId}_${Date.now()}.jpg`;
+        const filepath = path.join(__dirname, '../../public/screenshots', filename);
+        if (!fs.existsSync(path.dirname(filepath))) {
+            fs.mkdirSync(path.dirname(filepath), { recursive: true });
+        }
+        await fs.promises.writeFile(filepath, base64Data, 'base64');
+        screenshotUrl = `/screenshots/${filename}`;
+      } catch (err) {
+        console.error("Screenshot save failed", err);
+      }
+    }
+
+    if (action === 'LOGIN') {
+      // Check if there is already an open cycle
+      const openCycle = await Attendance.findOne({ student: studentId, session: sessionId, cycleStatus: 'OPEN' });
+      if (openCycle) {
+        return res.status(400).json({ success: false, message: 'Student already has an open cycle in this session' });
+      }
+
+      if (!state) {
+        state = new ActivityState({ student: studentId, session: sessionId, totalDurationMinutes: 0 });
+      }
+      
+      const loginTime = Date.now();
+      state.currentState = 'IN';
+      state.lastLoginTime = loginTime;
+      await state.save();
+      
+      // Create new Attendance cycle
+      await Attendance.create({
+        student: studentId,
+        session: sessionId,
+        date: new Date(loginTime).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }),
+        loginTime: loginTime,
+        loginScreenshot: screenshotUrl,
+        cycleStatus: 'OPEN'
+      });
+
+      await ActivityEvent.create({ student: studentId, session: sessionId, eventType: 'LOGIN', screenshotUrl });
+
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('activity_logged', { type: 'LOGIN', studentId, sessionId });
+      }
+      
+      const studentData = await Student.findById(studentId);
+      if (io) {
+        io.emit('attendance_logged', {
+          student: studentData,
+          session: sessionId,
+          time: new Date().toLocaleTimeString()
+        });
+      }
+
+      return res.status(200).json({ success: true, message: 'Login confirmed' });
+    } else if (action === 'LOGOUT') {
+      const openCycle = await Attendance.findOne({ student: studentId, session: sessionId, cycleStatus: 'OPEN' });
+      if (!openCycle) {
+        return res.status(400).json({ success: false, message: 'No open cycle found to logout from' });
+      }
+
+      const logoutTime = Date.now();
+      const duration = (logoutTime - new Date(openCycle.loginTime).getTime()) / 60000;
+      
+      openCycle.logoutTime = logoutTime;
+      openCycle.logoutScreenshot = screenshotUrl;
+      openCycle.durationMinutes = duration;
+      openCycle.cycleStatus = 'COMPLETED';
+      await openCycle.save();
+
+      state.currentState = 'OUT';
+      state.totalDurationMinutes += duration;
+      state.lastLogoutTime = logoutTime;
+      await state.save();
+      
+      await ActivityEvent.create({ student: studentId, session: sessionId, eventType: 'LOGOUT', screenshotUrl });
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('activity_logged', { type: 'LOGOUT', studentId, sessionId });
+      }
+      return res.status(200).json({ success: true, message: 'Logout confirmed' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+exports.getAllSessions = async (req, res) => {
+  try {
+    const AttendanceSession = require('../models/AttendanceSession');
+    const sessions = await AttendanceSession.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, data: sessions });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getSessionLiveTracking = async (req, res) => {
+  try {
+    const Attendance = require('../models/Attendance');
+    const ActivityState = require('../models/ActivityState');
+    
+    const states = await ActivityState.find({ session: req.params.id }).populate('student', 'name rollNumber branch section');
+    const cycles = await Attendance.find({ session: req.params.id }).sort({ loginTime: 1 });
+    
+    const studentCycles = {};
+    cycles.forEach(c => {
+      const sId = c.student.toString();
+      if (!studentCycles[sId]) studentCycles[sId] = [];
+      studentCycles[sId].push(c);
+    });
+
+    const data = states.map(state => {
+      const sId = state.student._id.toString();
+      return {
+        student: state.student,
+        currentState: state.currentState,
+        lastLoginTime: state.lastLoginTime,
+        lastLogoutTime: state.lastLogoutTime,
+        totalDurationMinutes: state.totalDurationMinutes,
+        cycles: studentCycles[sId] || []
+      };
+    });
+
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
