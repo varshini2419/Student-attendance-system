@@ -25,24 +25,39 @@ const app = express();
 connectDB();
 
 // Middleware
+const envFrontendUrl = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
+  : [];
+
 const allowedOrigins = [
-  process.env.FRONTEND_URL || 'https://student-attendance-system-eight-tau.vercel.app',
+  ...envFrontendUrl,
+  'https://student-attendance-system-nkwv83gwj-varshini2419-5300s-projects.vercel.app',
+  'https://student-attendance-system-eight-tau.vercel.app',
   'https://student-attendance-system-frontend.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000'
-];
+].filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin) return callback(null, true);
+
+    const isAllowed = allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin);
+    if (isAllowed) {
       callback(null, true);
     } else {
       console.warn(`[CORS BLOCKED] Origin ${origin} not allowed`);
-      callback(new Error('Not allowed by CORS'));
+      callback(null, false);
     }
   },
-  credentials: true
-}));
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Increase body parser limit to handle large arrays of base64 images during face registration
 app.use(express.json({ limit: '50mb' }));
