@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-let aiServiceUrl = process.env.AI_SERVICE_URL || 'https://student-attendance-system-1-p2tq.onrender.com';
+let aiServiceUrl = process.env.AI_SERVICE_URL || 'https://student-attendance-system-2-g09u.onrender.com';
 
 const aiClient = axios.create({
   baseURL: aiServiceUrl,

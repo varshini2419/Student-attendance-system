@@ -18,11 +18,27 @@ try:
 except ImportError:
     pass
 
+import re
+
 app = Flask(__name__)
 # Strict CORS config for deployment communication
-backend_url = os.getenv("BACKEND_URL", "https://student-attendance-system-1-1bgq.onrender.com")
-frontend_url = os.getenv("FRONTEND_URL", "https://student-attendance-system-eight-tau.vercel.app")
-CORS(app, resources={r"/*": {"origins": [backend_url, frontend_url, "http://localhost:5000", "http://localhost:5173"]}})
+backend_url = os.getenv("BACKEND_URL", "https://student-attendance-system-backend-o33t.onrender.com")
+frontend_url = os.getenv("FRONTEND_URL", "https://student-attendance-system-nkwv83gwj-varshini2419-5300s-projects.vercel.app")
+
+allowed_origins = [
+    backend_url,
+    frontend_url,
+    "https://student-attendance-system-backend-o33t.onrender.com",
+    "https://student-attendance-system-nkwv83gwj-varshini2419-5300s-projects.vercel.app",
+    "https://student-attendance-system-eight-tau.vercel.app",
+    "https://student-attendance-system-frontend.vercel.app",
+    "http://localhost:5000",
+    "http://localhost:5173",
+    "http://127.0.0.1:8000",
+    re.compile(r"https://.*\.vercel\.app")
+]
+
+CORS(app, resources={r"/*": {"origins": allowed_origins}}, supports_credentials=True)
 
 processor = FaceProcessor()
 
