@@ -35,7 +35,9 @@ allowed_origins = [
     "http://localhost:5000",
     "http://localhost:5173",
     "http://127.0.0.1:8000",
-    re.compile(r"https://.*\.vercel\.app")
+    re.compile(r"https://.*\.vercel\.app"),
+    re.compile(r"https://.*\.hf\.space"),
+    "https://huggingface.co"
 ]
 
 CORS(app, resources={r"/*": {"origins": allowed_origins}}, supports_credentials=True)
@@ -151,7 +153,7 @@ def recognize():
     if not extracted_faces:
         print("Face detected: NO")
         print("Embedding generated: NO")
-        return jsonify({"success": False, "message": "No face detected"})
+        return jsonify({"success": True, "faces": [], "message": "No face detected"})
         
     print("Face detected: YES")
     print("Embedding generated: YES")

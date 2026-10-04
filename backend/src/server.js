@@ -42,7 +42,7 @@ const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
 
-    const isAllowed = allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin);
+    const isAllowed = allowedOrigins.includes(origin) || /\.vercel\.app$/.test(origin) || /\.hf\.space$/.test(origin) || origin.includes('huggingface.co');
     if (isAllowed) {
       callback(null, true);
     } else {
@@ -76,16 +76,36 @@ app.use('/screenshots', express.static(path.join(__dirname, '../public/screensho
 // Swagger API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-// Root Route
-app.get('/', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'AI Student Attendance System API is running'
+// Serve Frontend if available
+const fs = require('fs');
+const frontendDist = path.join(__dirname, '../../frontend/dist');
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.get('*', (req, res, next) => {
+    if (
+      req.path.startsWith('/api') ||
+      req.path.startsWith('/reports') ||
+      req.path.startsWith('/screenshots') ||
+      req.path.startsWith('/api-docs') ||
+      req.path.startsWith('/health')
+    ) {
+      return next();
+    }
+    res.sendFile(path.join(frontendDist, 'index.html'));
   });
-});
+} else {
+  // Root Route
+  app.get('/', (req, res) => {
+    res.status(200).json({
+      success: true,
+      message: 'AI Student Attendance System API is running'
+    });
+  });
+}
 
 // Health check endpoint
 const mongoose = require('mongoose');
+const axios = require('axios');
 const healthCheck = (req, res) => {
   res.status(200).json({
     success: true,
@@ -95,6 +115,21 @@ const healthCheck = (req, res) => {
 };
 app.get('/health', healthCheck);
 app.get('/api/health', healthCheck);
+
+app.get('/api/ai-health', async (req, res) => {
+  try {
+    const aiUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000';
+    const aiRes = await axios.get(`${aiUrl}/api/health`, { timeout: 4000 });
+    return res.status(200).json(aiRes.data);
+  } catch (error) {
+    return res.status(502).json({
+      success: false,
+      ai: 'offline',
+      message: 'AI Service is starting up or unreachable',
+      error: error.message
+    });
+  }
+});
 
 // 404 Route handler
 app.use((req, res, next) => {

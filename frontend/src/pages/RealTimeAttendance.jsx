@@ -59,17 +59,40 @@ const RealTimeAttendance = () => {
     window.speechSynthesis.speak(utterance);
   }, [speechEnabled]);
 
-  // Handle Start Session
-  const handleStartSession = async () => {
-    if (!sessionName.trim()) {
-      alert('Please enter a Session Name before initializing the scanner.');
-      return;
-    }
+  // Auto-discover any active session on mount
+  useEffect(() => {
+    let isMounted = true;
+    const fetchExistingSession = async () => {
+      try {
+        const res = await API.get('/attendance/sessions');
+        if (isMounted && res.data && res.data.success && Array.isArray(res.data.data)) {
+          const live = res.data.data.find(s => s.status === 'active');
+          if (live) {
+            console.log('[SESSION] Resumed active session:', live.sessionName || live.sessionId);
+            setActiveSession(live);
+            setScanning(true);
+          }
+        }
+      } catch (e) {
+        console.warn('[SESSION] Note checking active sessions:', e.message);
+      }
+    };
+    fetchExistingSession();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Handle Start Session (auto-generates friendly name if blank)
+  const handleStartSession = async (customName = null) => {
+    const formattedDate = new Date().toLocaleDateString('en-CA');
+    const formattedTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const nameToUse = (typeof customName === 'string' && customName.trim()) 
+      ? customName.trim() 
+      : (sessionName.trim() || `Class Attendance (${formattedDate} ${formattedTime})`);
     
     try {
       setIsInitializing(true);
       const res = await API.post('/attendance/session/start', {
-        sessionName: sessionName.trim()
+        sessionName: nameToUse
       });
       
       if (res.data.success) {
@@ -256,18 +279,23 @@ const RealTimeAttendance = () => {
 
         setDetectedStudent({
           name: result.name,
+          rollNumber: result.rollNumber || result.studentId,
           id: result.studentId,
           confidence: Math.round(result.confidence * 100)
         });
 
         const lastPopupTime = cooldownsRef.current[result.studentId];
-        const inCooldown = lastPopupTime && (Date.now() - lastPopupTime < 5000);
+        const inCooldown = lastPopupTime && (Date.now() - lastPopupTime < 2000);
 
         setPendingAction(prevPending => {
           if (!inCooldown && !prevPending && result.action && result.action !== 'IGNORE') {
             const nextAction = {
               type: result.action,
-              student: { name: result.name, id: result.studentId },
+              student: { 
+                name: result.name, 
+                rollNumber: result.rollNumber || result.studentId, 
+                id: result.studentId 
+              },
               image: imageSrc
             };
             
@@ -276,7 +304,7 @@ const RealTimeAttendance = () => {
               pendingActionTimeoutRef.current = setTimeout(() => {
                 cooldownsRef.current[result.studentId] = Date.now();
                 setPendingAction(null);
-              }, 5000);
+              }, 8000);
             }
             return nextAction;
           }
@@ -467,8 +495,16 @@ const RealTimeAttendance = () => {
                   <>
                     <span className="text-base font-extrabold text-white tracking-wide">Scanner Offline</span>
                     <span className="text-sm text-slate-300 mt-1 max-w-xs">
-                      Initialize the scanner to begin.
+                      Start an attendance session to begin scanning faces.
                     </span>
+                    <button
+                      onClick={() => handleStartSession()}
+                      disabled={isInitializing}
+                      className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 active:scale-95 transition-all"
+                    >
+                      <Play className="h-4 w-4" />
+                      <span>{isInitializing ? 'INITIALIZING...' : 'START SCANNER NOW'}</span>
+                    </button>
                   </>
                 )}
               </div>
@@ -522,7 +558,10 @@ const RealTimeAttendance = () => {
                   <div className="h-16 w-16 bg-brand-50 text-brand-600 rounded-full flex items-center justify-center mb-4">
                     <ScanFace className="h-8 w-8" />
                   </div>
-                  <h3 className="text-xl font-black text-slate-900 mb-1">{pendingAction.student.name}</h3>
+                  <h3 className="text-xl font-black text-slate-900 mb-0.5">{pendingAction.student.name}</h3>
+                  <div className="text-xs font-bold text-slate-400 mb-4 font-mono">
+                    {pendingAction.student.rollNumber || pendingAction.student.id}
+                  </div>
                   <p className="text-sm font-medium text-slate-500 mb-6">
                     {pendingAction.type === 'LOGIN_AVAILABLE' ? 'Ready to log in?' : 'Do you want to log out?'}
                   </p>
@@ -594,7 +633,9 @@ const RealTimeAttendance = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100">
                     <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-widest mb-1">Roll No.</span>
-                    <span className="block font-bold text-sm text-slate-700 truncate">{detectedStudent.id}</span>
+                    <span className="block font-bold text-sm text-slate-700 truncate">
+                      {detectedStudent.rollNumber || detectedStudent.id}
+                    </span>
                   </div>
                   <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100">
                     <span className="block text-[10px] text-slate-400 uppercase font-bold tracking-widest mb-1">Match %</span>

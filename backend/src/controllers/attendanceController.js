@@ -66,11 +66,11 @@ exports.markAttendance = async (req, res) => {
 const temporalTracker = {};
 
 // Recognition Accuracy Configuration
-const FACE_MATCH_THRESHOLD = 0.35; // Lowered from 0.64 to block 13% FAR
-const MIN_RECOGNITION_MARGIN = 0.05; // Requires best match to be clearly better than 2nd best
-const MIN_FACE_WIDTH = 60; // Reject distant tiny faces
-const MIN_FACE_HEIGHT = 60;
-const CONSECUTIVE_MATCHES_REQUIRED = 3; // Temporal smoothing
+const FACE_MATCH_THRESHOLD = parseFloat(process.env.FACE_MATCH_THRESHOLD) || 0.55; // SFace official threshold is ~0.64; 0.55 is secure and accurate
+const MIN_RECOGNITION_MARGIN = 0.02; // Small margin to prevent confusion
+const MIN_FACE_WIDTH = 25; // Accept standard webcam distance
+const MIN_FACE_HEIGHT = 25;
+const CONSECUTIVE_MATCHES_REQUIRED = 1; // Immediate detection on match
 const liveTemporalTracker = {}; // Keyed by session_studentId for real-time validation
 
 // P1: In-Memory Student Cache to prevent MongoDB bottleneck
@@ -507,6 +507,7 @@ exports.recognizeFace = async (req, res) => {
         success: true,
         matched: true,
         name: bestMatch.name,
+        rollNumber: bestMatch.rollNumber,
         studentId: student,
         confidence: Number(confidence.toFixed(4)),
         action: 'LOGIN_AVAILABLE',
@@ -515,38 +516,24 @@ exports.recognizeFace = async (req, res) => {
     }
 
     if (state.currentState === 'IN') {
-      const minsSinceLogin = (Date.now() - new Date(state.lastLoginTime).getTime()) / 60000;
-      const cooldownTarget = parseInt(process.env.LOGOUT_COOLDOWN_MINUTES) || 5;
-      
-      if (minsSinceLogin < cooldownTarget) {
-        return res.status(200).json({
-          faceDetected: true,
-          success: true,
-          matched: true,
-          name: bestMatch.name,
-          studentId: student,
-          confidence: Number(confidence.toFixed(4)),
-          action: 'IGNORE',
-          message: 'Inside cooldown window'
-        });
-      } else {
-        return res.status(200).json({
-          faceDetected: true,
-          success: true,
-          matched: true,
-          name: bestMatch.name,
-          studentId: student,
-          confidence: Number(confidence.toFixed(4)),
-          action: 'LOGOUT_AVAILABLE',
-          message: 'Ready for logout'
-        });
-      }
+      return res.status(200).json({
+        faceDetected: true,
+        success: true,
+        matched: true,
+        name: bestMatch.name,
+        rollNumber: bestMatch.rollNumber,
+        studentId: student,
+        confidence: Number(confidence.toFixed(4)),
+        action: 'LOGOUT_AVAILABLE',
+        message: 'Ready for logout'
+      });
     } else {
       return res.status(200).json({
         faceDetected: true,
         success: true,
         matched: true,
         name: bestMatch.name,
+        rollNumber: bestMatch.rollNumber,
         studentId: student,
         confidence: Number(confidence.toFixed(4)),
         action: 'LOGIN_AVAILABLE',

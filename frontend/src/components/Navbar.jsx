@@ -50,15 +50,14 @@ const Navbar = ({ onMenuOpen }) => {
         setDbStatus('offline');
       }
 
-      // Check AI Service
+      // Check AI Service via backend proxy
       try {
-        let aiUrl = import.meta.env.DEV ? 'http://127.0.0.1:8000' : (import.meta.env.VITE_AI_SERVICE_URL || 'https://student-attendance-system-2-g09u.onrender.com');
-        const aiRes = await fetch(`${aiUrl}/api/health`);
-        if (aiRes.ok) {
+        const aiRes = await API.get('/ai-health');
+        if (aiRes.data && (aiRes.data.success || aiRes.data.ai === 'running')) {
           if (aiStatus !== 'online') console.log('[DIAGNOSTICS] Python AI Service connected and model loaded.');
           setAiStatus('online');
         } else {
-          console.warn(`[DIAGNOSTICS] Python AI Service responded with status: ${aiRes.status}`);
+          console.warn(`[DIAGNOSTICS] Python AI Service responded with non-online status:`, aiRes.data);
           setAiStatus('offline');
         }
       } catch (err) {
