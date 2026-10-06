@@ -13,7 +13,8 @@ const {
   clearActiveSession,
   confirmActivity,
   getAllSessions,
-  getSessionLiveTracking
+  getSessionLiveTracking,
+  getActiveSession
 } = require('../controllers/attendanceController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -31,9 +32,10 @@ router.get('/dashboard', getDashboardStats);
 // Session endpoints
 router.post('/session/start', startSession);
 router.post('/session/stop', stopSession);
+router.get('/session/active', getActiveSession);
+router.delete('/session/active', clearActiveSession);
 router.get('/session/:id/report', getSessionReport);
 router.get('/session/:id/excel', downloadSessionExcel);
-router.delete('/session/active', clearActiveSession);
 router.get('/sessions', getAllSessions);
 router.get('/session/:id/live', getSessionLiveTracking);
 

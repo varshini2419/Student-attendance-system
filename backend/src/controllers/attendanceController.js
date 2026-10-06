@@ -780,6 +780,21 @@ exports.startSession = async (req, res) => {
     const timestamp = Date.now().toString().slice(-6); // last 6 digits of timestamp
     const sessionId = `SESSION_${todayStr.replace(/-/g, '')}_${timestamp}_${randomHex}`;
 
+    // Finalize any previous active sessions to ensure only ONE session is active
+    const previousActive = await AttendanceSession.find({ status: 'active' });
+    if (previousActive.length > 0) {
+      const prevIds = previousActive.map(p => p._id);
+      await AttendanceSession.updateMany(
+        { _id: { $in: prevIds } },
+        { $set: { status: 'completed', endTime: new Date() } }
+      );
+      const Attendance = require('../models/Attendance');
+      await Attendance.updateMany(
+        { session: { $in: prevIds }, cycleStatus: 'OPEN' },
+        { $set: { cycleStatus: 'COMPLETED', logoutTime: new Date() } }
+      );
+    }
+
     const newSession = await AttendanceSession.create({
       sessionId,
       sessionName: sessionName.trim(),
@@ -795,6 +810,84 @@ exports.startSession = async (req, res) => {
       data: newSession
     });
   } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// @desc    Get current active session and attendee list
+// @route   GET /api/attendance/session/active
+// @access  Private
+exports.getActiveSession = async (req, res) => {
+  try {
+    const AttendanceSession = require('../models/AttendanceSession');
+    const ActivityState = require('../models/ActivityState');
+    const Attendance = require('../models/Attendance');
+
+    // Automatically complete any stale active sessions older than 12 hours
+    const staleCutoff = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    await AttendanceSession.updateMany(
+      { status: 'active', createdAt: { $lt: staleCutoff } },
+      { $set: { status: 'completed', endTime: new Date() } }
+    );
+
+    const activeSession = await AttendanceSession.findOne({ status: 'active' }).sort({ createdAt: -1 });
+
+    if (!activeSession) {
+      return res.status(200).json({
+        success: true,
+        data: null,
+        attendees: []
+      });
+    }
+
+    // Fetch existing attendees for this session
+    const states = await ActivityState.find({ session: activeSession._id })
+      .populate('student', 'name rollNumber branch section')
+      .sort({ updatedAt: -1 });
+      
+    const cycles = await Attendance.find({ session: activeSession._id })
+      .populate('student', 'name rollNumber branch section')
+      .sort({ loginTime: -1 });
+
+    const attendeesMap = {};
+    states.forEach(st => {
+      if (!st.student) return;
+      const sId = st.student._id.toString();
+      attendeesMap[sId] = {
+        id: sId,
+        name: st.student.name,
+        rollNumber: st.student.rollNumber || sId,
+        type: st.currentState === 'IN' ? 'LOGIN' : 'LOGOUT',
+        time: st.lastLoginTime ? new Date(st.lastLoginTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+      };
+    });
+
+    cycles.forEach(cy => {
+      if (!cy.student) return;
+      const sId = cy.student._id.toString();
+      if (!attendeesMap[sId]) {
+        attendeesMap[sId] = {
+          id: sId,
+          name: cy.student.name,
+          rollNumber: cy.student.rollNumber || sId,
+          type: cy.cycleStatus === 'OPEN' ? 'LOGIN' : 'LOGOUT',
+          time: cy.loginTime ? new Date(cy.loginTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+        };
+      }
+    });
+
+    const attendees = Object.values(attendeesMap);
+
+    return res.status(200).json({
+      success: true,
+      data: activeSession,
+      attendees
+    });
+  } catch (error) {
+    console.error('getActiveSession error:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -1401,7 +1494,8 @@ exports.confirmActivity = async (req, res) => {
       }
 
       const logoutTime = Date.now();
-      const duration = (logoutTime - new Date(openCycle.loginTime).getTime()) / 60000;
+      const durationMs = logoutTime - new Date(openCycle.loginTime).getTime();
+      const duration = Math.max(0, Math.round(durationMs / 60000));
       
       openCycle.logoutTime = logoutTime;
       openCycle.logoutScreenshot = screenshotUrl;
@@ -1410,7 +1504,7 @@ exports.confirmActivity = async (req, res) => {
       await openCycle.save();
 
       state.currentState = 'OUT';
-      state.totalDurationMinutes += duration;
+      state.totalDurationMinutes = Math.round((state.totalDurationMinutes || 0) + duration);
       state.lastLogoutTime = logoutTime;
       await state.save();
       
@@ -1443,29 +1537,70 @@ exports.getSessionLiveTracking = async (req, res) => {
     const ActivityState = require('../models/ActivityState');
     
     const states = await ActivityState.find({ session: req.params.id }).populate('student', 'name rollNumber branch section');
-    const cycles = await Attendance.find({ session: req.params.id }).sort({ loginTime: 1 });
+    // Only fetch Present attendance cycles (ignore auto-inserted Absent records)
+    const cycles = await Attendance.find({ 
+      session: req.params.id,
+      status: { $ne: 'Absent' },
+      loginTime: { $exists: true, $ne: null }
+    }).populate('student', 'name rollNumber branch section').sort({ loginTime: 1 });
     
     const studentCycles = {};
     cycles.forEach(c => {
-      const sId = c.student.toString();
+      if (!c.student || c.status === 'Absent' || !c.loginTime) return;
+      const sId = (c.student._id || c.student).toString();
       if (!studentCycles[sId]) studentCycles[sId] = [];
-      studentCycles[sId].push(c);
+      const cycleObj = c.toObject ? c.toObject() : { ...c };
+      if (cycleObj.durationMinutes !== undefined && cycleObj.durationMinutes !== null) {
+        cycleObj.durationMinutes = Math.round(cycleObj.durationMinutes);
+      }
+      studentCycles[sId].push(cycleObj);
     });
 
-    const data = states.map(state => {
+    const studentsMap = {};
+    states.forEach(state => {
+      if (!state.student) return;
+      // Only include if student has an actual login event
+      if (!state.lastLoginTime && (!studentCycles[state.student._id.toString()] || studentCycles[state.student._id.toString()].length === 0)) {
+        return;
+      }
       const sId = state.student._id.toString();
-      return {
+      studentsMap[sId] = {
         student: state.student,
         currentState: state.currentState,
         lastLoginTime: state.lastLoginTime,
         lastLogoutTime: state.lastLogoutTime,
-        totalDurationMinutes: state.totalDurationMinutes,
+        totalDurationMinutes: Math.round(state.totalDurationMinutes || 0),
         cycles: studentCycles[sId] || []
       };
     });
 
+    cycles.forEach(c => {
+      if (!c.student || !c.student._id || c.status === 'Absent' || !c.loginTime) return;
+      const sId = c.student._id.toString();
+      if (!studentsMap[sId]) {
+        const latestCycle = studentCycles[sId] ? studentCycles[sId][studentCycles[sId].length - 1] : c;
+        studentsMap[sId] = {
+          student: c.student,
+          currentState: latestCycle && latestCycle.cycleStatus === 'OPEN' ? 'IN' : 'OUT',
+          lastLoginTime: latestCycle ? latestCycle.loginTime : null,
+          lastLogoutTime: latestCycle ? latestCycle.logoutTime : null,
+          totalDurationMinutes: latestCycle ? (latestCycle.durationMinutes || 0) : 0,
+          cycles: studentCycles[sId] || [c]
+        };
+      }
+    });
+
+    // Ensure ONLY present students with recorded login activity are returned
+    const data = Object.values(studentsMap).filter(item => {
+      const hasLogin = !!item.lastLoginTime;
+      const hasValidCycles = Array.isArray(item.cycles) && item.cycles.some(c => c.loginTime && c.status !== 'Absent');
+      return hasLogin || hasValidCycles;
+    });
+    data.sort((a, b) => new Date(b.lastLoginTime || 0) - new Date(a.lastLoginTime || 0));
+
     res.status(200).json({ success: true, data });
   } catch (error) {
+    console.error('getSessionLiveTracking error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

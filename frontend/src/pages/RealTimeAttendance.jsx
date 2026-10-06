@@ -59,40 +59,120 @@ const RealTimeAttendance = () => {
     window.speechSynthesis.speak(utterance);
   }, [speechEnabled]);
 
+  // Offline & Network resilience
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [networkNotice, setNetworkNotice] = useState(null);
+
   // Auto-discover any active session on mount
   useEffect(() => {
     let isMounted = true;
+
+    // Check localStorage fallback for offline survival
+    try {
+      const cachedSession = localStorage.getItem('active_attendance_session');
+      if (cachedSession) {
+        const parsed = JSON.parse(cachedSession);
+        if (parsed && parsed.status === 'active') {
+          setActiveSession(parsed);
+          setScanning(true);
+        }
+      }
+      const cachedList = localStorage.getItem('active_attendance_list');
+      if (cachedList) {
+        setAttendanceList(JSON.parse(cachedList));
+      }
+    } catch (e) {
+      console.warn('LocalStorage read warning:', e);
+    }
+
     const fetchExistingSession = async () => {
       try {
-        const res = await API.get('/attendance/sessions');
-        if (isMounted && res.data && res.data.success && Array.isArray(res.data.data)) {
-          const live = res.data.data.find(s => s.status === 'active');
-          if (live) {
-            console.log('[SESSION] Resumed active session:', live.sessionName || live.sessionId);
-            setActiveSession(live);
+        const res = await API.get('/attendance/session/active');
+        if (isMounted && res.data && res.data.success) {
+          if (res.data.data) {
+            console.log('[SESSION] Resumed active session:', res.data.data.sessionName);
+            setActiveSession(res.data.data);
+            if (Array.isArray(res.data.attendees)) {
+              setAttendanceList(res.data.attendees);
+              try { localStorage.setItem('active_attendance_list', JSON.stringify(res.data.attendees)); } catch(e){}
+            }
+            try { localStorage.setItem('active_attendance_session', JSON.stringify(res.data.data)); } catch(e){}
             setScanning(true);
+          } else {
+            // No session active in database
+            setActiveSession(null);
+            setScanning(false);
+            localStorage.removeItem('active_attendance_session');
+            localStorage.removeItem('active_attendance_list');
           }
         }
       } catch (e) {
-        console.warn('[SESSION] Note checking active sessions:', e.message);
+        console.warn('[SESSION] Note checking active session:', e.message);
       }
     };
+
     fetchExistingSession();
-    return () => { isMounted = false; };
+
+    // Online & Offline Event Listeners
+    const handleOnline = () => {
+      setIsOffline(false);
+      setNetworkNotice('Connection restored! Resuming live scanner...');
+      setTimeout(() => setNetworkNotice(null), 4000);
+      fetchExistingSession();
+    };
+
+    const handleOffline = () => {
+      setIsOffline(true);
+      setNetworkNotice('Network connection issue detected. Scanner is paused. Session data is safe.');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
-  // Handle Start Session (auto-generates friendly name if blank)
-  const handleStartSession = async (customName = null) => {
-    const formattedDate = new Date().toLocaleDateString('en-CA');
-    const formattedTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const nameToUse = (typeof customName === 'string' && customName.trim()) 
-      ? customName.trim() 
-      : (sessionName.trim() || `Class Attendance (${formattedDate} ${formattedTime})`);
+  // Multi-device sync: Sync active session state across laptops periodically
+  useEffect(() => {
+    if (!activeSession || activeSession.status !== 'active' || isOffline) return;
+    const syncInterval = setInterval(async () => {
+      try {
+        const res = await API.get('/attendance/session/active');
+        if (res.data && res.data.success) {
+          if (res.data.data && res.data.data._id === activeSession._id) {
+            if (Array.isArray(res.data.attendees) && res.data.attendees.length !== attendanceList.length) {
+              setAttendanceList(res.data.attendees);
+              try { localStorage.setItem('active_attendance_list', JSON.stringify(res.data.attendees)); } catch(e){}
+            }
+          } else if (!res.data.data) {
+            // Session was terminated on another device
+            setActiveSession(prev => prev ? { ...prev, status: 'completed' } : null);
+            setScanning(false);
+            localStorage.removeItem('active_attendance_session');
+          }
+        }
+      } catch (e) {
+        // network issue - do not clear local state
+      }
+    }, 5000);
+    return () => clearInterval(syncInterval);
+  }, [activeSession, isOffline, attendanceList.length]);
+
+  // Handle Start Session (strictly requires user to enter a session name)
+  const handleStartSession = async () => {
+    if (!sessionName || !sessionName.trim()) {
+      alert('Please enter a session name before starting the scanner.');
+      return;
+    }
     
     try {
       setIsInitializing(true);
       const res = await API.post('/attendance/session/start', {
-        sessionName: nameToUse
+        sessionName: sessionName.trim()
       });
       
       if (res.data.success) {
@@ -100,6 +180,11 @@ const RealTimeAttendance = () => {
         setAttendanceList([]);
         setDetectedStudent(null);
         setScanning(true);
+        setSessionName('');
+        try {
+          localStorage.setItem('active_attendance_session', JSON.stringify(res.data.data));
+          localStorage.setItem('active_attendance_list', JSON.stringify([]));
+        } catch(e){}
       }
     } catch (err) {
       console.error('Error starting session:', err);
@@ -111,20 +196,25 @@ const RealTimeAttendance = () => {
 
   // Handle Stop Session
   const handleStopSession = async () => {
-    if (isStopping) return;
+    if (isStopping || !activeSession) return;
     
     try {
       setIsStopping(true);
       setScanning(false);
       const res = await API.post('/attendance/session/stop', { sessionId: activeSession._id });
       if (res.data.success) {
-        setActiveSession({
+        const finalized = {
           ...activeSession,
           status: 'completed',
           presentCount: res.data.presentCount,
           absentCount: res.data.absentCount,
           excelUrl: res.data.excelUrl
-        });
+        };
+        setActiveSession(finalized);
+        try {
+          localStorage.removeItem('active_attendance_session');
+          localStorage.removeItem('active_attendance_list');
+        } catch(e){}
       }
     } catch (err) {
       console.error('Error stopping session:', err);
@@ -185,7 +275,15 @@ const RealTimeAttendance = () => {
       if (response.data.success) {
         setAttendanceList(prev => {
           const timeStr = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-          return [{ name: student.name, id: student.id, type: actionType, time: timeStr }, ...prev];
+          const updated = [{ 
+            name: student.name, 
+            rollNumber: student.rollNumber || student.id, 
+            id: student.id, 
+            type: actionType, 
+            time: timeStr 
+          }, ...prev];
+          try { localStorage.setItem('active_attendance_list', JSON.stringify(updated)); } catch(e){}
+          return updated;
         });
         
         if (actionType === 'LOGIN') {
@@ -219,6 +317,11 @@ const RealTimeAttendance = () => {
   }, [scanning, activeSession]);
 
   const scanFrame = useCallback(async () => {
+    if (isOffline || !navigator.onLine) {
+      loopTimeoutRef.current = setTimeout(() => scanFrame(), 1500);
+      return;
+    }
+
     if (!isScanningRef.current) {
       if (scanning && activeSession && activeSession.status === 'active') {
         loopTimeoutRef.current = setTimeout(() => scanFrame(), 300);
@@ -327,6 +430,10 @@ const RealTimeAttendance = () => {
 
     } catch (err) {
       console.error('Scan API error:', err);
+      if (err.message && (err.message.includes('Network') || err.message.includes('timeout') || !navigator.onLine)) {
+        setIsOffline(true);
+        setNetworkNotice('Network connection issue. Waiting to reconnect...');
+      }
       setDebugInfo(prev => ({ ...prev, backendResponse: 'Failed' }));
     } finally {
       if (isScanningRef.current || (scanning && activeSession && activeSession.status === 'active')) {
@@ -336,7 +443,7 @@ const RealTimeAttendance = () => {
         setDetectedStudent(null);
       }
     }
-  }, [speakText, activeSession, scanning]);
+  }, [speakText, activeSession, scanning, isOffline]);
 
   useEffect(() => {
     if (scanning && activeSession && activeSession.status === 'active') {
@@ -353,6 +460,27 @@ const RealTimeAttendance = () => {
 
   return (
     <div className="space-y-8 animate-fade-in-up">
+      {/* Offline Alert Banner */}
+      {isOffline && (
+        <div className="bg-amber-500/10 border-2 border-amber-500/30 text-amber-900 rounded-2xl p-4 flex items-center justify-between shadow-sm animate-pulse">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0" />
+            <div>
+              <h4 className="font-bold text-sm text-amber-900">Network Issue Detected</h4>
+              <p className="text-xs text-amber-700">Scanner is paused. Active session and recorded attendees are safely stored and will not be lost. Reconnecting automatically...</p>
+            </div>
+          </div>
+          <span className="text-xs font-bold bg-amber-200 text-amber-800 px-3 py-1 rounded-full uppercase tracking-wider">OFFLINE</span>
+        </div>
+      )}
+
+      {networkNotice && !isOffline && (
+        <div className="bg-emerald-500/10 border-2 border-emerald-500/30 text-emerald-900 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
+          <CheckCircle className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+          <span className="font-bold text-sm text-emerald-800">{networkNotice}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -494,17 +622,9 @@ const RealTimeAttendance = () => {
                 ) : (
                   <>
                     <span className="text-base font-extrabold text-white tracking-wide">Scanner Offline</span>
-                    <span className="text-sm text-slate-300 mt-1 max-w-xs">
-                      Start an attendance session to begin scanning faces.
+                    <span className="text-sm text-slate-300 mt-2 max-w-xs">
+                      Enter a session name above and click <span className="text-emerald-400 font-bold">INITIALIZE SCANNER</span> to start.
                     </span>
-                    <button
-                      onClick={() => handleStartSession()}
-                      disabled={isInitializing}
-                      className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-500/30 hover:bg-emerald-400 active:scale-95 transition-all"
-                    >
-                      <Play className="h-4 w-4" />
-                      <span>{isInitializing ? 'INITIALIZING...' : 'START SCANNER NOW'}</span>
-                    </button>
                   </>
                 )}
               </div>
